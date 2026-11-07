@@ -41,8 +41,19 @@ if not LPH_OBFUSCATED then
 end;
 
 
-if (getgenv and getgenv() or _G).Library then
-	(getgenv and getgenv() or _G).Library.Unload()
+do
+	local __env = (getgenv and getgenv() or _G)
+
+	if __env.swim_unload then
+		pcall(__env.swim_unload)
+	end
+
+	if __env.Library and __env.Library.Unload then
+		pcall(__env.Library.Unload)
+	end
+
+	__env.swim_unload = nil
+	__env.Library = nil
 end
 
 local Folder = "moneyblox"
@@ -4778,14 +4789,26 @@ local Library, Utility = LPH_JIT(function()
 
 		function Library.Unload()
 			for _,obj in Utility.Connections do
-				obj:Disconnect()
+				pcall(function()
+					obj:Disconnect()
+				end)
 			end
+			table.clear(Utility.Connections)
 
 			for _,obj in Utility.Objects do
-				obj:Destroy()
+				pcall(function()
+					obj:Destroy()
+				end)
 			end
+			table.clear(Utility.Objects)
+
+			table.clear(Library.ThemeObjects)
+			table.clear(Library.Flags)
+			table.clear(Library.ConfigFlags)
+			table.clear(Library.Popups)
 
 			Env.Library = nil
+			Env.Utility = nil
 		end
 	end;
 	Env.Library = Library
@@ -4926,7 +4949,8 @@ local cheat = {
 	},
 	drawings = {},
 	hooks = {},
-	hitsounds = {}
+	hitsounds = {},
+	unloaded = false
 }
 
 do
@@ -5345,25 +5369,36 @@ cheat.utility = {} do
 		end
 	end))
 	cheat.utility.unload = function()
-		connection:Disconnect()
-		connection1:Disconnect()
+		if connection then
+			connection:Disconnect()
+			connection = nil
+		end
+		if connection1 then
+			connection1:Disconnect()
+			connection1 = nil
+		end
 		for key, _ in (cheat.connections.heartbeats) do
 			cheat.connections.heartbeats[key] = nil
 		end
 		for key, _ in (cheat.connections.renderstepped) do
-			cheat.connections.heartbeats[key] = nil
+			cheat.connections.renderstepped[key] = nil
 		end
 		for _, drawing in (cheat.drawings) do
-			drawing:Remove()
-			cheat.drawings[_] = nil
+			pcall(function()
+				drawing:Remove()
+			end)
 		end
+		table.clear(cheat.drawings)
 		for hooked, original in (cheat.hooks) do
-			if type(original) == "function" then
-				hookfunction(hooked, clonefunction(original))
-			else
-				hookmetamethod(original["instance"], original["metamethod"], clonefunction(original["func"]))
-			end
+			pcall(function()
+				if type(original) == "function" then
+					hookfunction(hooked, clonefunction(original))
+				else
+					hookmetamethod(original["instance"], original["metamethod"], clonefunction(original["func"]))
+				end
+			end)
 		end
+		table.clear(cheat.hooks)
 	end
 end
 
@@ -6405,6 +6440,7 @@ do
 	local player_report_list = cheat.report_list
 	task.spawn(LPH_NO_VIRTUALIZE(function()
 		while task.wait(0.25) do
+			if cheat.unloaded then break end
 			for i, v in player_report_list do
 				v.rr = 0
 				v.mw = 0
@@ -8199,6 +8235,7 @@ do
 		end
 		task.spawn(function()
 			while task.wait(0.5) do
+				if cheat.unloaded then break end
 				if cheat.auto_refill_mag and project_delta.fps_object then
 					pcall(function()
 						local fps_object = project_delta.fps_object
@@ -8357,6 +8394,7 @@ do
 	local target_wall_penetration = project_delta.target_wall_penetration
 	task.spawn(LPH_NO_VIRTUALIZE(function()
 		while task.wait() do
+			if cheat.unloaded then break end
 			local indtxt = ""
 
 			target_part, target_player, target_character = nil, nil, nil
@@ -9006,6 +9044,7 @@ do
 
 	task.spawn(function()
 		while task.wait(1/5) do
+					if cheat.unloaded then break end
 					local closest, distance = nil, math.huge
 					if (freecam and freecam_key and new_camera_pos) then
 						LPH_NO_VIRTUALIZE(function()
@@ -11413,8 +11452,21 @@ do
 					end,
 				})
 
+				Config:Button({
+					Name = "Unload",
+					Confirm = true,
+					Callback = function()
+						Library.Notification("Unloading " .. Utility.RichText("swim hub", Library.Theme.accent) .. "...", 3)
+
+						task.delay(0.25, function()
+							cheat.unload()
+						end)
+					end,
+				})
+
 	task.spawn(function()
 		while task.wait(5) do
+			if cheat.unloaded then break end
 			if ui.window.Visible then
 				local _, Files = Utility.GetFiles(ConfigFolder, { ".cfg" })
 
@@ -11598,6 +11650,7 @@ do
 
 	task.spawn(function()
 		while task.wait(5) do
+			if cheat.unloaded then break end
 			if ui.window.Visible then
 				local _, Files = Utility.GetFiles(ThemeFolder, { ".cfg" })
 
@@ -11775,6 +11828,62 @@ do
 	end)))
 end
 
+-- ========= Master unload (ปุ่ม Unload ในแท็บ Settings หรือเรียก swim_unload() จาก execute console) =========
+cheat.unload = function()
+	if cheat.unloaded then
+		return
+	end
+	cheat.unloaded = true
+
+	-- 1) ESP: ล้าง drawings/adornments/connections ของผู้เล่นทุกคน
+	pcall(function()
+		if cheat.EspLibrary and cheat.EspLibrary.__loaded and cheat.EspLibrary.unload then
+			cheat.EspLibrary.unload()
+		end
+	end)
+
+	-- 2) hooks, drawings และ connection pumps (heartbeat/renderstepped)
+	pcall(function()
+		cheat.utility.unload()
+	end)
+
+	-- 3) ทำลาย hitsounds
+	for _, sound in cheat.hitsounds do
+		pcall(function()
+			sound:Destroy()
+		end)
+	end
+	table.clear(cheat.hitsounds)
+
+	-- 4) คืนค่ากล้อง (กรณีเปิด Freecam ค้างไว้)
+	pcall(function()
+		Camera.CameraType = Enum.CameraType.Custom
+		local character = LocalPlayer.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			Camera.CameraSubject = humanoid
+		end
+	end)
+
+	-- 5) UI ทั้งหมด: disconnect connections + destroy instances ของ Library
+	pcall(function()
+		Library.Unload()
+	end)
+
+	-- 6) เคลียร์ global env
+	local env = getgenv and getgenv() or _G
+	env.swim_unload = nil
+	env.Library = nil
+	env.Utility = nil
+end
+
+-- expose ไว้เรียกจาก execute console ได้: swim_unload()
+if getgenv then
+	getgenv().swim_unload = cheat.unload
+else
+	_G.swim_unload = cheat.unload
+end
+
 cheat.EspLibrary.load()
 
 if project_delta.fps_object then
@@ -11946,6 +12055,7 @@ do
 	end)
 	task.spawn(function()
 		while task.wait(2) do
+			if cheat.unloaded then break end
 			if mod_enabled then
 				mod_scan()
 			end
@@ -11982,6 +12092,7 @@ do
 	end
 	task.spawn(function()
 		while task.wait(0.5) do
+			if cheat.unloaded then break end
 			if cheat.report_notifications then
 				local total = report_total()
 				if report_last_total == nil then
