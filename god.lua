@@ -6856,8 +6856,8 @@
 
         local ui = {
             window = Library:Window({
-                namestart = "swim",
-                nameend = "hub"
+                namestart = "Yuki",
+                nameend = "premium"
             })
         }
 
