@@ -1489,8 +1489,8 @@ local Library, Utility = LPH_JIT(function()
 			cfg = cfg or { }; cfg = Library.Config(cfg, {
 				size = UDim2.fromOffset(602, 502),
 				open = true,
-				namestart = "swim",
-				nameend = "hub",
+				namestart = "Yuki",
+				nameend = "premium",
 			})
 
 			local Window = {
@@ -4511,8 +4511,8 @@ local Library, Utility = LPH_JIT(function()
 		function Library.Watermark(self, cfg)
 			cfg = cfg or { }; cfg = Library.Config(cfg, {
 				text = "ping: {ping}ms | user: admin | {date}",
-				titlestart = "swim",
-				titleend = "bot",
+				titlestart = "Yuki",
+				titleend = "premium",
 				visible = true,
 				rate = 1 / 20,
 			})
@@ -6912,8 +6912,8 @@ cheat.bullet_infos = {}
 
 local ui = {
 	window = Library:Window({
-		namestart = "swim",
-		nameend = "hub"
+		namestart = "Yuki",
+		nameend = "premium"
 	})
 }
 
