@@ -11036,7 +11036,7 @@ do
 		end})
 
 		local shitcode, shitcode_tick, shitcode_factor = false, tick(), (mathrandom() - 0.5) * 5
-		miscbox:Toggle({Name = "Old swimhub mode", Flag = "old_swimhub_mode", Value = false, Callback = function(v)
+		miscbox:Toggle({Name = "Old Yuki mode", Flag = "old_Yukipremium_mode", Value = false, Callback = function(v)
 			shitcode = v
 			shitcode_tick = tick()
 			task.spawn(function()
@@ -13309,8 +13309,8 @@ do
 				end})
 
 				local Watermark = Library:Watermark({
-					titlestart = "swim",
-					titleend = "hub"
+					titlestart = "Yuki",
+					titleend = "premium"
 				})
 				local WatermarkText;
 				Personalization:Toggle({Name = "Watermark", Flag = "menu_watermark", Value = true, Callback = function(v)
