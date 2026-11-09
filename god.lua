@@ -6867,7 +6867,18 @@ do
 	end)
 
 	local get_estimated_origin = project_delta.get_estimated_origin
+	local vis_origin_tick = 0
 	cheat.utility.new_heartbeat(LPH_NO_VIRTUALIZE(function(delta)
+		-- visibility raycasts refresh ~10Hz instead of every heartbeat;
+		-- server_position and all other per-player data still update at full rate
+		local now = os.clock()
+		if now - vis_origin_tick < 0.1 then
+			for i, v in player_list do
+				v.update_loop(delta, nil)
+			end
+			return
+		end
+		vis_origin_tick = now
 		local character = LocalPlayer.Character
 		local hrp = character and _FindFirstChild(character, "HumanoidRootPart")
 		local hmm_origin = hrp and get_estimated_origin(LocalPlayer)
@@ -7537,20 +7548,6 @@ do
 				holdbullets_keybind.Set(holdbullets_key, true)
 			end})
 
-			local main_wireframe = Instance.new("WireframeHandleAdornment")
-			main_wireframe.Parent = game:GetService("CoreGui").RobloxGui
-			main_wireframe.Adornee = workspace
-			main_wireframe.Color3 = Color3.new(1, 1, 1)
-			main_wireframe.Transparency = 0
-			main_wireframe.AlwaysOnTop = true
-			main_wireframe.CFrame = CFrame.new()
-			main_wireframe.Scale = Vector3.one
-			main_wireframe.Thickness = 1
-			main_wireframe.AdornCullingMode = Enum.AdornCullingMode.Automatic
-
-			cheat.utility.new_renderstepped(LPH_NO_VIRTUALIZE(function(delta)
-				main_wireframe:Clear()
-			end))
 		end
 	end
 	do
@@ -8267,8 +8264,14 @@ do
 
 				return text_buffer:gsub("[\r\n]$", "")
 			end)
+			local inv_refresh_tick, inv_last_text = 0, nil
 			cheat.utility.new_heartbeat(LPH_JIT(function()
+				local now = os.clock()
+				if now - inv_refresh_tick < 0.1 then return end
+				inv_refresh_tick = now
 				local inventory = target_player and get_player_inventory(target_player) or ""
+				if inventory == inv_last_text then return end
+				inv_last_text = inventory
 				inventory_text.Text = inventory
 				inventory_holder.Size = inventory ~= "" and UDim2.new(0, inventory_text.TextBounds.X + 4, 0, inventory_text.TextBounds.Y + 2) or UDim2.new(0, 0, 0, 0)
 			end))
@@ -8388,6 +8391,21 @@ do
 		gunsec:Toggle({Name = "No bullet Drop", Value = false, Flag = "nodrop_enabled", Callback = function(bool)
 			no_bullet_drop = bool
 		end})
+		gunsec:Toggle({Name = "Manipulation", Value = false, Flag = "manipulation", Callback = function(bool)
+			cheat.feat.manipulation = bool
+		end})
+		gunsec:Toggle({Name = "Force auto", Value = false, Flag = "gunmods_force_auto", Callback = function(bool)
+			force_auto = bool
+		end})
+		local rapid_speed_slider = nil
+		local rapid_toggle = gunsec:Toggle({Name = "Rapid fire", Value = false, Flag = "gunmods_rapid_fire", Callback = function(bool)
+			rapid_fire = bool
+			if rapid_speed_slider then rapid_speed_slider.State(bool) end
+		end})
+		rapid_speed_slider = gunsec:Slider({Name = "Rounds per second", Min = 10, Max = 100, Float = 1, Value = 60, Flag = "gunmods_rapid_fire_speed", Suffix = "1s/%s", Callback = function(int)
+			rapid_fire_speed = 1/int
+		end})
+		rapid_speed_slider.State(false)
 
 		do
 			local auto_reload, auto_refill = false
@@ -8727,7 +8745,11 @@ do
 			local line_dot = cheat.utility.new_drawing("Circle", {Visible = false, Radius = 7, Thickness = 1.5})
 			local line_cdot = cheat.utility.new_drawing("Circle", {Visible = false, Radius = 2, Thickness = 1})
 			local line_txt = cheat.utility.new_drawing("Text", {Visible = false, Size = 13, Center = true, Outline = true})
+			local traj_all_hidden, traj_line_hidden = false, false
 			local function traj_hide()
+				if traj_all_hidden then return end
+				traj_all_hidden = true
+				traj_line_hidden = true
 				for i = 1, 120 do traj_segs[i].Transparency = 1 end
 				for i = 1, 80 do line_segs[i].Transparency = 1 end
 				traj_ball.Visible = false
@@ -8741,6 +8763,8 @@ do
 				line_txt.Visible = false
 			end
 			local function traj_hide_line()
+				if traj_line_hidden then return end
+				traj_line_hidden = true
 				for i = 1, 80 do line_segs[i].Transparency = 1 end
 				line_dot.Visible = false
 				line_cdot.Visible = false
@@ -8766,6 +8790,7 @@ do
 				local origin = Camera.CFrame.Position + Camera.CFrame.LookVector * 1.3
 				local mvel = char.PrimaryPart and char.PrimaryPart.AssemblyLinearVelocity or Vector3.zero
 				if cheat.grenade_predict then
+					traj_all_hidden = false
 					local pts, _, impact_t = grenade_sim(origin, Camera.CFrame.LookVector * speed + mvel * 0.45, info.fuse or 3, cheat.grenade_bounces, info.bounciness or 0.35, info.is_rgo)
 					local n = 1
 					local total = #pts - 1
@@ -8837,6 +8862,7 @@ do
 					if tgt then
 						local dir, err = solve_arc(origin, tgt.Position - Vector3.new(0, 1.2, 0), speed, mvel, info.fuse or 3, info.bounciness or 0.35, info.is_rgo, cheat.grenade_arc)
 						if dir then
+							traj_line_hidden = false
 							local pts = grenade_sim(origin, dir * speed + mvel * 0.45, info.fuse or 3, cheat.grenade_bounces, info.bounciness or 0.35, info.is_rgo)
 							local n = 1
 							local total = #pts - 1
@@ -9951,25 +9977,37 @@ do
 			local new_camera_pos
 
 	task.spawn(function()
+		local fc_closest
+		local fc_scan_tick = 0
 		while task.wait(1/5) do
+			if (freecam and freecam_key and new_camera_pos) then
+				local now = os.clock()
+				if now - fc_scan_tick >= 1 then
+					fc_scan_tick = now
 					local closest, distance = nil, math.huge
-					if (freecam and freecam_key and new_camera_pos) then
-						LPH_NO_VIRTUALIZE(function()
-							for i, model in workspace:GetDescendants() do
-								if not _IsA(model, "Model") then continue end
-								local primarypart = model.PrimaryPart
-								if not primarypart then continue end
-								local pos = primarypart.Position
-								local ts_dist = (new_camera_pos - pos).Magnitude
-								if ts_dist < distance then
-									closest, distance = primarypart, ts_dist
-								end
+					LPH_NO_VIRTUALIZE(function()
+						for i, model in workspace:GetDescendants() do
+							if not _IsA(model, "Model") then continue end
+							local primarypart = model.PrimaryPart
+							if not primarypart then continue end
+							local pos = primarypart.Position
+							local ts_dist = (new_camera_pos - pos).Magnitude
+							if ts_dist < distance then
+								closest, distance = primarypart, ts_dist
 							end
-						end)()
-					end
-					LocalPlayer.ReplicationFocus = closest
+						end
+					end)()
+					fc_closest = closest
 				end
-			end)
+			else
+				fc_closest = nil
+				fc_scan_tick = 0
+			end
+			if fc_closest ~= nil or LocalPlayer.ReplicationFocus ~= nil then
+				LocalPlayer.ReplicationFocus = fc_closest
+			end
+		end
+	end)
 
 			game:GetService("RunService").PreRender:Connect(LPH_NO_VIRTUALIZE(function(delta)
 				local character = LocalPlayer.Character
@@ -11035,20 +11073,6 @@ do
 			end
 		end})
 
-		local shitcode, shitcode_tick, shitcode_factor = false, tick(), (mathrandom() - 0.5) * 5
-		miscbox:Toggle({Name = "Old Yukipremium mode", Flag = "old_swimhub_mode", Value = false, Callback = function(v)
-			shitcode = v
-			shitcode_tick = tick()
-			task.spawn(function()
-				while shitcode do
-					if tick() - shitcode_tick > 1/(24 + shitcode_factor) then
-						shitcode_tick = tick()
-						shitcode_factor = (mathrandom() - 0.5) * 5
-						RunService.RenderStepped:Wait()
-					end
-				end
-			end)
-		end})
 
 	end
 	do
