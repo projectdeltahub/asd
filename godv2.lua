@@ -14362,7 +14362,7 @@ do
 			push_toast(("Statistics 0 Kill / 0 Death (K/D 0) %d คน: %s"):format(#zeros, summarize(zeros)), 10, Color3.fromRGB(230, 190, 80))
 		end
 		if #matches == 0 and #zeros == 0 then
-			push_toast("Not found 0/0 Servers", 6, Color3.fromRGB(160, 160, 160))
+			push_toast("Not found 0/0 In Servers", 6, Color3.fromRGB(160, 160, 160))
 		end
 	end })
 
