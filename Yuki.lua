@@ -1,4 +1,5 @@
 -- moneyblox | functions trimmed + Unload + Sakura Ink UI (background fully visible, from AnsuHub)
+-- fixed build: silent auto-shoot repaired (robust fire + fallback), legacy spin-mode toggle removed, Desync untouched
 --!native
 --!optimize 2
 
@@ -6934,6 +6935,7 @@ ui.subtabs = {
 	misc_main = ui.tabs.misc:SubTab({Name = "Main"}),
 	misc_antiaim = ui.tabs.misc:SubTab({Name = "Anti-aim"}),
 	misc_exploit = ui.tabs.misc:SubTab({Name = "Exploits"}),
+	misc_quest = ui.tabs.misc:SubTab({Name = "Quest"}),
 	settings_main = ui.tabs.settings:SubTab({Name = "Main"}),
 	skins_changer = ui.tabs.skins:SubTab({Name = "Skin Changer"}),
 	skins_weapon = ui.tabs.skins:SubTab({Name = "Weapon Editor"}),
@@ -6959,6 +6961,7 @@ ui.sections = {
 	antiaim = ui.subtabs.misc_antiaim:Section({Name = "Antiaim", Side = "Left"}),
 	antiaim_animations = ui.subtabs.misc_antiaim:Section({Name = "Animation", Side = "Right"}),
 	custom_desync = ui.subtabs.misc_exploit:Section({Name = "Custom desync", Side = "Left"}),
+	quest_main = ui.subtabs.misc_quest:Section({Name = "Auto Quest", Side = "Left"}),
 
 	settings_config = ui.subtabs.settings_main:Section({Name = "Config", Side = "Left"}),	settings_personalization = ui.subtabs.settings_main:Section({Name = "Personalization", Side = "Right"}),
 	theme_config = ui.subtabs.settings_theme:Section({Name = "Config", Side = "Left"}),
@@ -9155,10 +9158,33 @@ do
 			end
 
 			local fps_object = project_delta.fps_object
-			local use_module_name = fps_object and fps_object.useModuleName
-			local use_func = use_module_name and fps_usetypes[use_module_name]
-			if type(fps_object) == "table" and use_module_name == "RangedWeaponDefault" then
-				pcall(use_func, fps_object)
+
+			-- fixed auto-shoot: resolve the weapon's use function robustly
+			local usetypes = fps_usetypes or project_delta.fps_usetypes
+			if not usetypes and tick() - (cheat.ut_rescan or 0) > 3 then
+				cheat.ut_rescan = tick()
+				for _, v in getgc(true) do
+					if type(v) == "table" and type(rawget(v, "RangedWeaponDefault")) == "function" and type(rawget(v, "MeleeWeaponDefault")) == "function" then
+						project_delta.fps_usetypes = v
+						break
+					end
+				end
+				usetypes = project_delta.fps_usetypes
+			end
+
+			if type(fps_object) == "table" and type(usetypes) == "table" then
+				local use_name = fps_object.useModuleName
+				local use_func = (type(use_name) == "string") and usetypes[use_name] or nil
+
+				if use_name == "MeleeWeaponDefault" then
+					use_func = nil
+				elseif type(use_func) ~= "function" and (fps_object.BulletsList or type(fps_object.Bullets) == "number") then
+					use_func = usetypes.RangedWeaponDefault
+				end
+
+				if type(use_func) == "function" then
+					pcall(use_func, fps_object)
+				end
 			end
 		end
 	end))
@@ -11050,20 +11076,6 @@ do
 			end
 		end})
 
-		local shitcode, shitcode_tick, shitcode_factor = false, tick(), (mathrandom() - 0.5) * 5
-		miscbox:Toggle({Name = "Old Yukipremium mode", Flag = "old_swimhub_mode", Value = false, Callback = function(v)
-			shitcode = v
-			shitcode_tick = tick()
-			task.spawn(function()
-				while shitcode do
-					if tick() - shitcode_tick > 1/(24 + shitcode_factor) then
-						shitcode_tick = tick()
-						shitcode_factor = (mathrandom() - 0.5) * 5
-						RunService.RenderStepped:Wait()
-					end
-				end
-			end)
-		end})
 
 	end
 	do
@@ -14055,7 +14067,592 @@ do
 			end
 		end
 	end)
+
+	-- =====================================================================
+	-- Player checker: name list (file 2) + 0/0 stat alerts
+	-- Toast notifications are shown at the bottom-right edge of the screen
+	-- =====================================================================
+	-- ===== CONFIG : แก้ดีเลย์ (delay) ของ Name checker ได้ตรงนี้ =====
+	local CHECKER_SCAN_DELAY = 5    -- สแกนเช็คเซิฟทุก 5 วินาที
+	local CHECKER_ALERT_REPEATS = 3 -- แจ้งเตือนซ้ำ 3 ครั้ง
+	local CHECKER_ALERT_EVERY = 5   -- ครั้งละ 5 วินาที (3 ครั้ง = 15 วินาที)
+	local ZERO_CONFIRM_TIME = 12    -- ยืนยันก่อนแจ้งเตือนคน 0 Kill / 0 Death (วินาที)
+	-- ================================================================
+	local check_names = {
+		"Mamkin_perotexnik", "rrwwrggrgwr", "Maxikinz", "zDjvbcrd", "dyls_x", "deduct0re",
+		"retrysuk", "ZETA_85", "FancyishFawn", "FlashAshSmash_Reborn", "jannu2010", "UnknownHD222",
+		"vixtorswordmaster", "EXPL0", "Duhacek1112", "hakaji", "DominikK7772", "RunexVikings",
+		"jacks188", "solter", "DartDekster", "AAbattery12344", "DeltaTest11", "Igor_qun",
+		"imseeingredrn", "EpsilonGreedy", "Dexo_ii", "MrGhosty1928", "RuebeHD2", "steretir32323",
+		"PhantomPro2056", "Aydan_1401", "orange_justin3", "markilino10", "ME_BAD90THS", "KBHGaming480",
+		"Gribler1", "Farlan9", "yuckey47", "Sparky_deeny", "Aidenkenkule13", "Juanthebeamer5000",
+		"Old_Shadowist", "AnkroRB", "mightyblast6", "playstoreapplestolen", "robloxparentverify", "Pixelized908",
+		"GentleArmann", "Mr_1Dumpling", "Poptartmainia", "ProfesionalPr0", "wasuphomie1745", "notgoodguyMichael",
+		"wantedcombat", "maasaavainnyaaaa", "PokuBitty", "RaphaGabrielYT", "ENZ0RBK", "kyfoh",
+		"DENIS74525", "DiamondRelic05", "masterdoggo09", "PhantomSkull437", "J_xrg", "Paviic",
+		"rr195356", "kkjjkkjjjkk", "Mr_epicgamer5", "GreenTheCorrupt", "uguigughjgkj1", "reecec345",
+		"khgygh222a", "highfive737", "Fr0ssyt", "Kevified", "EXP_L0", "Lightwolf_h1d1",
+		"diepie201", "SlendiiQ", "DigitalArchives", "notsamesss", "TurnedVile", "SOLO_LOLO",
+		"XuNuo201", "gprolikop", "Obviouslylethal", "OperatorNull0", "KolRstar", "imblu1",
+		"Rupert_Barrq", "IanEyeballs", "hoimeneer75", "snbibbes3", "joycloud", "kittensoldier7",
+		"SalvaVX", "e2equl", "SpO0Ks", "NATAN_133", "abtinchegk", "AlvinepChan",
+		"DozerDaddy", "immu_red", "ThatSprayThough", "LEMONFOXTROT", "ACCIDENTSHAPPEN", "KnifeUserTop1",
+		"50k_freshcash", "Nokky732", "xxkrod06xx", "syedaarish", "MANI124KING", "benjofullscreen666",
+		"gotcharinoes", "jenkinsman4", "f0hoc", "VOLODUMUR22", "ooferman_fade", "XChaosmasterXx50",
+		"Boomy234545", "NotReallyTeal", "dogelordmlgpro123", "ShadowCrossBinder", "Buzzixe", "gggshdjk",
+		"AtomsleyTheCoyote", "GonderDex", "crayzbaconpro998", "Government_ManGM", "lukejoseph210", "MKlargekarp",
+		"Da_ultimatefruitloop", "maybealian", "FabiusCaesar1", "wardog6543211", "Spenklers", "RazorHedgehog",
+		"Klra_man",
+	}
+	local name_lookup = { }
+	for _, name in ipairs(check_names) do
+		name_lookup[string.lower(name)] = true
+	end
+	print("[checker] name list loaded: " .. #check_names .. " names")
+
+	-- bottom-right toast holder (parented to the library popup gui, auto-cleaned on Unload)
+	local toast_holder = Utility.New("Frame", {
+		Name = "checker_toasts",
+		BackgroundTransparency = 1,
+		BorderColor3 = Color3.fromRGB(0, 0, 0),
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -12, 1, -12),
+		Size = UDim2.new(0, 280, 1, -24),
+		Parent = Library.ScreenGuiPopups,
+	})
+
+	Utility.New("UIListLayout", {
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		Parent = toast_holder,
+	})
+
+	local toast_order = 0
+	local toast_stack = { }
+
+	local function escape_rich(str)
+		str = tostring(str)
+		str = str:gsub("&", "&amp;")
+		str = str:gsub("<", "&lt;")
+		str = str:gsub(">", "&gt;")
+		return str
+	end
+
+	local function toast_remove(card)
+		if not card then
+			return
+		end
+		for index = #toast_stack, 1, -1 do
+			if toast_stack[index] == card then
+				table.remove(toast_stack, index)
+				break
+			end
+		end
+		local holder = card.Parent
+		if holder then
+			task.spawn(function()
+				pcall(function()
+					Library.Tween(card, { Position = UDim2.new(1, 0, 0, 0) })
+				end)
+				task.wait(Library.TweenSpeed)
+				pcall(function()
+					holder:Destroy()
+				end)
+			end)
+		end
+	end
+
+	local function push_toast(text, duration, accent)
+		if not toast_holder.Parent then
+			return
+		end
+		toast_order = toast_order + 1
+
+		while #toast_stack >= 7 do
+			toast_remove(toast_stack[1])
+		end
+
+		local holder = Utility.New("Frame", {
+			Name = "toast_item",
+			BackgroundTransparency = 1,
+			BorderColor3 = Color3.fromRGB(0, 0, 0),
+			BorderSizePixel = 0,
+			AutomaticSize = Enum.AutomaticSize.XY,
+			LayoutOrder = toast_order,
+			Parent = toast_holder,
+		})
+
+		local card = Utility.New("TextButton", {
+			Name = "toast_card",
+			BackgroundColor3 = Color3.fromRGB(23, 25, 26),
+			BackgroundTransparency = 0.4,
+			BorderColor3 = Color3.fromRGB(0, 0, 0),
+			BorderSizePixel = 0,
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Position = UDim2.new(1, 0, 0, 0),
+			Size = UDim2.new(0, 280, 0, 0),
+			Parent = holder,
+		}, { BackgroundColor3 = "background" })
+
+		Utility.New("Frame", {
+			Name = "accent",
+			Position = UDim2.new(1, -2, 0, 0),
+			Size = UDim2.new(0, 2, 1, 0),
+			BackgroundColor3 = accent or Color3.fromRGB(220, 100, 100),
+			BorderColor3 = Color3.fromRGB(0, 0, 0),
+			BorderSizePixel = 0,
+			Parent = card,
+		})
+
+		local label = Utility.New("TextLabel", {
+			Name = "toast_text",
+			FontFace = Font.fromEnum(Enum.Font.SourceSans),
+			RichText = true,
+			Text = text,
+			TextColor3 = Color3.fromRGB(230, 230, 230),
+			TextSize = 15,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			BackgroundTransparency = 1,
+			Position = UDim2.new(0, 8, 0, 0),
+			Size = UDim2.new(1, -18, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Parent = card,
+		}, { TextColor3 = "text" })
+
+		Utility.New("UIPadding", {
+			PaddingTop = UDim.new(0, 6),
+			PaddingBottom = UDim.new(0, 6),
+			Parent = label,
+		})
+
+		Utility.Signal(card.MouseButton1Click:Connect(function()
+			toast_remove(card)
+		end))
+
+		table.insert(toast_stack, card)
+
+		task.spawn(function()
+			if card.Parent then
+				pcall(function()
+					Library.Tween(card, { Position = UDim2.new(0, 0, 0, 0) })
+				end)
+			end
+		end)
+
+		task.delay(duration or 8, function()
+			toast_remove(card)
+		end)
+	end
+
+	-- แจ้งเตือนซ้ำ: 3 ครั้งใน 15 วินาที ครั้งละ 5 วินาที (ตามค่า CONFIG ด้านบน)
+	local function push_toast_repeat(text, accent)
+		task.spawn(function()
+			for i = 1, CHECKER_ALERT_REPEATS do
+				push_toast(text, CHECKER_ALERT_EVERY, accent)
+				if i < CHECKER_ALERT_REPEATS then
+					task.wait(CHECKER_ALERT_EVERY)
+				end
+			end
+		end)
+	end
+	-- stats source (same path as the existing cheater detector)
+	local function get_player_stats(player)
+		local ok, stats = pcall(function()
+			local folder = game:GetService("ReplicatedStorage"):FindFirstChild("Players")
+			local data = folder and folder:FindFirstChild(player.Name)
+			local status = data and data:FindFirstChild("Status")
+			local journey = status and status:FindFirstChild("Journey")
+			return journey and journey:FindFirstChild("Statistics") or nil
+		end)
+		if ok then
+			return stats
+		end
+		return nil
+	end
+
+	local function read_stat(stats, ...)
+		local keys = { ... }
+		for _, key in ipairs(keys) do
+			local value = stats:GetAttribute(key)
+			if value ~= nil then
+				return value
+			end
+		end
+		return nil
+	end
+
+	local function is_zero_player(player)
+		local stats = get_player_stats(player)
+		if not stats then
+			return false
+		end
+		local kills = read_stat(stats, "K_PVP", "Kills")
+		local deaths = read_stat(stats, "D_PVP", "Deaths")
+		if kills == nil or deaths == nil then
+			return false
+		end
+		return kills == 0 and deaths == 0
+	end
+
+	local name_notified = { }
+	local zero_seen = { }
+	local zero_notified = { }
+	local checker_names_enabled = false
+	local checker_zero_enabled = false
+
+	Utility.Signal(Players.PlayerRemoving:Connect(function(player)
+		zero_seen[player] = nil
+		zero_notified[player] = nil
+		if name_notified[player] then
+			name_notified[player] = nil
+			if checker_names_enabled then
+				push_toast("<b>" .. escape_rich(player.Name) .. "</b> Moderator leave Server", 8, Color3.fromRGB(160, 160, 160))
+			end
+		end
+	end))
+
+	miscsec:Toggle({ Name = "Moderator checker", Value = false, Flag = "checker_names", Callback = function(bool)
+		checker_names_enabled = bool
+		if not bool then
+			table.clear(name_notified)
+		end
+	end })
+
+	miscsec:Toggle({ Name = "0/0 stat detector", Value = false, Flag = "checker_zero_stats", Callback = function(bool)
+		checker_zero_enabled = bool
+		if not bool then
+			table.clear(zero_seen)
+			table.clear(zero_notified)
+		end
+	end })
+
+	miscsec:Button({ Name = "Check server now", Callback = function()
+		local matches = { }
+		local zeros = { }
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= LocalPlayer then
+				if name_lookup[string.lower(tostring(player.Name))] then
+					table.insert(matches, tostring(player.Name))
+				end
+				if is_zero_player(player) then
+					table.insert(zeros, tostring(player.Name))
+				end
+			end
+		end
+		local function summarize(list)
+			if #list == 0 then
+				return "none"
+			end
+			local shown = { }
+			for i = 1, math.min(#list, 8) do
+				shown[#shown + 1] = list[i]
+			end
+			local text = table.concat(shown, ", ")
+			if #list > 8 then
+				text = text .. " (+" .. (#list - 8) .. ")"
+			end
+			return text
+		end
+		if #matches > 0 then
+			push_toast(("Moderator %d คน: %s"):format(#matches, summarize(matches)), 10, Color3.fromRGB(220, 100, 100))
+		end
+		if #zeros > 0 then
+			push_toast(("Statistics 0 Kill / 0 Death (K/D 0) %d คน: %s"):format(#zeros, summarize(zeros)), 10, Color3.fromRGB(230, 190, 80))
+		end
+		if #matches == 0 and #zeros == 0 then
+			push_toast("Not found 0/0 In Servers", 6, Color3.fromRGB(160, 160, 160))
+		end
+	end })
+
+	local checker_tick = 0
+	cheat.utility.new_heartbeat(function()
+		if not toast_holder.Parent then
+			return
+		end
+		if os.clock() - checker_tick < CHECKER_SCAN_DELAY then
+			return
+		end
+		checker_tick = os.clock()
+		if not (checker_names_enabled or checker_zero_enabled) then
+			return
+		end
+		pcall(function()
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= LocalPlayer then
+					if checker_names_enabled and not name_notified[player] then
+						if name_lookup[string.lower(tostring(player.Name))] then
+							name_notified[player] = true
+							push_toast_repeat(("Moderator: <b>%s</b> (%s)"):format(escape_rich(player.Name), escape_rich(tostring(player.DisplayName))), Color3.fromRGB(220, 100, 100))
+						end
+					end
+					if checker_zero_enabled and not zero_notified[player] then
+						if is_zero_player(player) then
+							local first_seen = zero_seen[player]
+							if not first_seen then
+								zero_seen[player] = os.clock()
+							elseif os.clock() - first_seen >= ZERO_CONFIRM_TIME then
+								zero_notified[player] = true
+								push_toast_repeat(("Statistics 0 Kill / 0 Death (K/D 0): <b>%s</b> (%s)"):format(escape_rich(player.Name), escape_rich(tostring(player.DisplayName))), Color3.fromRGB(230, 190, 80))
+							end
+						else
+							zero_seen[player] = nil
+						end
+					end
+				end
+			end
+		end)
+	end)
 end
+-- Auto Quest: auto accept / auto complete via ReplicatedStorage.Remotes.QuestUpdate
+-- "Activate" = accept quest, "Complete" = turn quest in
+-- Captured server answers:
+--   Activate -> returns the quest object (ReplicatedStorage.Players.<you>.
+--               Status.Journey.Quests.<name>) on success, returns nothing when
+--               the quest is already active / not available yet
+--   Complete -> returns true on success
+-- v6: minimal UI (accept/complete toggles + now buttons). Delays are
+--     hardcoded to the best lag-free value (0.5s per remote call), the quest
+--     list is fixed to every quest seen in the capture, notifications and the
+--     Equip packet are always on, and a completed quest is re-accepted
+--     immediately.
+do
+        local quest_unloaded = false
+
+        -- hook Unload BEFORE init so the background loops always stop even if init fails
+        local old_library_unload = Library.Unload
+        Library.Unload = function()
+                quest_unloaded = true
+                return old_library_unload()
+        end
+
+        local ok_quest_init, err_quest_init = pcall(function()
+                local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+                -- fixed farming list: every quest name seen in the captured packets
+                local quest_selected = { "Rations", "Deficit", "NoviceMarksman", "BossFirst", "OccupationForces", "OccupationForcesPt2", "PequodDown", "FlightRecorder", "DistressSignal" }
+
+                -- best lag-free pacing: 0.5s between remote calls. Both loops
+                -- combined end up at only ~2-3 calls/second (each call also
+                -- waits for the server RTT), so re-accepting stays instant via
+                -- the post-complete trigger without spamming the server.
+                local ACCEPT_DELAY = 0.5
+                local COMPLETE_DELAY = 0.5
+
+                local auto_accept = false
+                local auto_complete = false
+                local quest_notify = true
+                local quest_send_equip = true
+                local quest_remote = nil
+                local equip_remote = nil
+
+                -- resolve ReplicatedStorage.Remotes.QuestUpdate (+Equip) without blocking the main script
+                task.spawn(function()
+                        local remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 30)
+                        if remotes then
+                                quest_remote = remotes:FindFirstChild("QuestUpdate") or remotes:WaitForChild("QuestUpdate", 30)
+                                equip_remote = remotes:FindFirstChild("Equip") or remotes:WaitForChild("Equip", 15)
+                        end
+                        if not quest_remote then
+                                pcall(function()
+                                        Library.Notification("QuestUpdate remote not found (ReplicatedStorage.Remotes)", 4)
+                                end)
+                        end
+                end)
+
+                local function get_quest_names()
+                        local names = {}
+                        for _, name in ipairs(quest_selected) do
+                                table.insert(names, tostring(name))
+                        end
+                        return names
+                end
+
+                -- InvokeServer with a hard timeout: if the server never answers,
+                -- return (false, "no response") instead of freezing this thread forever
+                local function invoke_quest(mode, quest_name, timeout)
+                        if not quest_remote then
+                                return false, "remote not found"
+                        end
+                        local answered, ok_call, result = false, nil, nil
+                        local thr = task.spawn(function()
+                                local o, r = pcall(function()
+                                        return quest_remote:InvokeServer(mode, quest_name)
+                                end)
+                                answered, ok_call, result = true, o, r
+                        end)
+                        local t0 = os.clock()
+                        while not answered and os.clock() - t0 < timeout do
+                                task.wait(0.1)
+                        end
+                        if not answered then
+                                pcall(task.cancel, thr)
+                                return false, "no response"
+                        end
+                        return ok_call, result
+                end
+
+                -- the captured packets also fired Remotes.Equip:FireServer(nil)
+                -- right after a successful accept, so replay it (always on)
+                local function send_equip()
+                        if quest_send_equip and equip_remote then
+                                task.spawn(function()
+                                        pcall(function()
+                                                equip_remote:FireServer(nil)
+                                        end)
+                                end)
+                        end
+                end
+
+                -- success checks based on the captured return values
+                local function activate_ok(ok, result)
+                        return ok == true and result ~= nil and result ~= false
+                end
+                local function complete_ok(ok, result)
+                        return ok == true and result == true
+                end
+
+                -- rate-limited failure warnings: same message max once per 10s
+                local last_warn = {}
+                local function warn_quest(key, message)
+                        if not quest_notify then
+                                return
+                        end
+                        local now = os.clock()
+                        if last_warn[key] and now - last_warn[key] < 10 then
+                                return
+                        end
+                        last_warn[key] = now
+                        pcall(function()
+                                Library.Notification("Auto quest: " .. message, 3)
+                        end)
+                end
+
+                local function notify_quest(mode, quest_name, ok, result)
+                        if not quest_notify then
+                                return
+                        end
+                        local success = (mode == "Activate" and activate_ok(ok, result)) or (mode == "Complete" and complete_ok(ok, result))
+                        if success then
+                                pcall(function()
+                                        Library.Notification((mode == "Activate" and "Quest accepted: " or "Quest completed: ") .. quest_name, 1.5)
+                                end)
+                        elseif not ok then
+                                warn_quest(mode .. ":" .. quest_name, (mode == "Activate" and "Accept " or "Complete ") .. quest_name .. " failed (" .. tostring(result) .. ")")
+                        end
+                        -- clean rejections (server answered nil/false) are normal
+                        -- while a quest is already active / not finished: stay silent
+                end
+
+                -- backoff: after a timeout / error skip this quest+mode for 10s
+                -- so one hanging call cannot slow the whole round down
+                local skip_until = {}
+                local function is_skipped(mode, quest_name)
+                        local until_t = skip_until[mode .. ":" .. quest_name]
+                        return until_t ~= nil and os.clock() < until_t
+                end
+                local function set_backoff(mode, quest_name)
+                        skip_until[mode .. ":" .. quest_name] = os.clock() + 10
+                end
+
+                -- a quest was just turned in: clear its accept backoff and
+                -- accept the next one immediately
+                local function on_complete_success(quest_name)
+                        skip_until["Activate:" .. quest_name] = nil
+                        if auto_accept and not quest_unloaded then
+                                local qname = quest_name
+                                task.spawn(function()
+                                        local ok2, result2 = invoke_quest("Activate", qname, 8)
+                                        notify_quest("Activate", qname, ok2, result2)
+                                        if activate_ok(ok2, result2) then
+                                                send_equip()
+                                        elseif ok2 then
+                                                warn_quest("reaccept:" .. qname, "Re-accept " .. qname .. " rejected right after completion")
+                                        end
+                                end)
+                        end
+                end
+
+                -- fire every selected quest once (manual buttons)
+                local function run_once(mode)
+                        if not quest_remote then
+                                pcall(function()
+                                        Library.Notification("Quest remote not found yet", 2.5)
+                                end)
+                                return
+                        end
+                        local names = get_quest_names()
+                        if #names == 0 then
+                                pcall(function()
+                                        Library.Notification("No quest selected", 2.5)
+                                end)
+                                return
+                        end
+                        for _, quest_name in ipairs(names) do
+                                local ok, result = invoke_quest(mode, quest_name, 8)
+                                notify_quest(mode, quest_name, ok, result)
+                                if mode == "Activate" and activate_ok(ok, result) then
+                                        send_equip()
+                                end
+                                if mode == "Complete" and complete_ok(ok, result) then
+                                        on_complete_success(quest_name)
+                                end
+                                task.wait(0.15)
+                        end
+                end
+
+                -- background loop for the auto toggles; runs until Unload and
+                -- retries every cycle, so quests keep being re-accepted forever
+                local function quest_loop(mode, is_enabled, delay)
+                        while not quest_unloaded do
+                                if is_enabled() then
+                                        for _, quest_name in ipairs(get_quest_names()) do
+                                                if quest_unloaded or not is_enabled() then break end
+                                                if not is_skipped(mode, quest_name) then
+                                                        local ok, result = invoke_quest(mode, quest_name, 8)
+                                                        notify_quest(mode, quest_name, ok, result)
+                                                        if ok and mode == "Activate" and activate_ok(ok, result) then
+                                                                send_equip()
+                                                        elseif ok and mode == "Complete" and complete_ok(ok, result) then
+                                                                on_complete_success(quest_name)
+                                                        elseif not ok then
+                                                                set_backoff(mode, quest_name)
+                                                        end
+                                                end
+                                                if quest_unloaded or not is_enabled() then break end
+                                                task.wait(delay)
+                                        end
+                                end
+                                task.wait(0.25)
+                        end
+                end
+
+                task.spawn(quest_loop, "Activate", function() return auto_accept end, ACCEPT_DELAY)
+                task.spawn(quest_loop, "Complete", function() return auto_complete end, COMPLETE_DELAY)
+
+                -- only these four controls (delays are hardcoded)
+                ui.sections.quest_main:Toggle({Name = "Auto accept quest", Value = false, Flag = "quest_auto_accept", Callback = function(bool)
+                        auto_accept = bool
+                end})
+                ui.sections.quest_main:Toggle({Name = "Auto complete quest", Value = false, Flag = "quest_auto_complete", Callback = function(bool)
+                        auto_complete = bool
+                end})
+                ui.sections.quest_main:Button({Name = "Accept now", Callback = function()
+                        task.spawn(run_once, "Activate")
+                end})
+                ui.sections.quest_main:Button({Name = "Complete now", Callback = function()
+                        task.spawn(run_once, "Complete")
+                end})
+        end)
+
+        if not ok_quest_init then
+                warn("Auto Quest init failed: " .. tostring(err_quest_init))
+        end
+end
+
 -- Unload
 do
 	ui.sections.settings_config:Button({
