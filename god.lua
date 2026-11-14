@@ -14433,6 +14433,9 @@ end
 -- console shows nothing at all) and tuned for no lag: cached quest
 -- folder, cached requirements, the watcher only scans quests the server
 -- actually replicated.
+-- v15: the NPC sweep checks 2 NPCs in parallel per batch and the turn-in
+-- chain fires the moment the first batch delivers something (faster
+-- deliver -> turn in -> accept-next cycle).
 do
         local quest_unloaded = false
 
@@ -15179,7 +15182,12 @@ do
                 end
 
                 -- sweep every NPC with the confirmed HandOver call; the server
-                -- answers true on each hand-over it accepts
+                -- answers true on each hand-over it accepts.
+                -- NPCs are checked TWO AT A TIME: each batch fires 2 HandOver
+                -- calls in parallel (both bounded by the 5s timeout) instead
+                -- of walking the list one by one, so the sweep finishes in
+                -- about half the time and the turn-in chain (deliver ->
+                -- complete -> accept the next quest) starts sooner
                 local function handover_sweep(force)
                         if quest_unloaded or not auto_complete then
                                 return
@@ -15190,18 +15198,49 @@ do
                         end
                         handover_last = now
                         local any_success = false
-                        for _, npc_name in ipairs(npc_candidates) do
+                        local chain_fired = false
+                        local i = 1
+                        while i <= #npc_candidates do
                                 if quest_unloaded or not auto_complete then
                                         return
                                 end
-                                if handover_npc(npc_name) then
-                                        any_success = true
+                                -- batch of up to 2 NPCs
+                                local batch = {}
+                                for k = 0, 1 do
+                                        if npc_candidates[i + k] then
+                                                table.insert(batch, npc_candidates[i + k])
+                                        end
                                 end
-                                task.wait(0.5)
+                                local batch_ok = {}
+                                local finished = 0
+                                for idx, npc_name in ipairs(batch) do
+                                        task.spawn(function()
+                                                batch_ok[idx] = handover_npc(npc_name) == true
+                                                finished = finished + 1
+                                        end)
+                                end
+                                -- every call is bounded by the 5s HandOver timeout
+                                local t0 = os.clock()
+                                while finished < #batch and os.clock() - t0 < 7 do
+                                        task.wait(0.1)
+                                end
+                                for idx = 1, #batch do
+                                        if batch_ok[idx] then
+                                                any_success = true
+                                        end
+                                end
+                                if any_success and not chain_fired then
+                                        -- something was delivered -> turn the
+                                        -- finished quest in right away while the
+                                        -- rest of the sweep keeps running
+                                        chain_fired = true
+                                        run_turnin_chain()
+                                end
+                                i = i + 2
+                                task.wait(0.25)
                         end
                         if any_success and not quest_unloaded then
-                                -- something was delivered -> turn the finished
-                                -- quest in right away and re-accept
+                                -- catch quests that became ready late in the sweep
                                 run_turnin_chain()
                         end
                 end
