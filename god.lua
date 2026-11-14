@@ -1,4 +1,5 @@
 -- moneyblox | functions trimmed + Unload + Sakura Ink UI (background fully visible, from AnsuHub)
+-- fixed build: silent auto-shoot repaired (robust fire + fallback), legacy spin-mode toggle removed, Desync untouched
 --!native
 --!optimize 2
 
@@ -6867,18 +6868,7 @@ do
 	end)
 
 	local get_estimated_origin = project_delta.get_estimated_origin
-	local vis_origin_tick = 0
 	cheat.utility.new_heartbeat(LPH_NO_VIRTUALIZE(function(delta)
-		-- visibility raycasts refresh ~10Hz instead of every heartbeat;
-		-- server_position and all other per-player data still update at full rate
-		local now = os.clock()
-		if now - vis_origin_tick < 0.1 then
-			for i, v in player_list do
-				v.update_loop(delta, nil)
-			end
-			return
-		end
-		vis_origin_tick = now
 		local character = LocalPlayer.Character
 		local hrp = character and _FindFirstChild(character, "HumanoidRootPart")
 		local hmm_origin = hrp and get_estimated_origin(LocalPlayer)
@@ -6945,6 +6935,7 @@ ui.subtabs = {
 	misc_main = ui.tabs.misc:SubTab({Name = "Main"}),
 	misc_antiaim = ui.tabs.misc:SubTab({Name = "Anti-aim"}),
 	misc_exploit = ui.tabs.misc:SubTab({Name = "Exploits"}),
+	misc_quest = ui.tabs.misc:SubTab({Name = "Quest"}),
 	settings_main = ui.tabs.settings:SubTab({Name = "Main"}),
 	skins_changer = ui.tabs.skins:SubTab({Name = "Skin Changer"}),
 	skins_weapon = ui.tabs.skins:SubTab({Name = "Weapon Editor"}),
@@ -6970,6 +6961,7 @@ ui.sections = {
 	antiaim = ui.subtabs.misc_antiaim:Section({Name = "Antiaim", Side = "Left"}),
 	antiaim_animations = ui.subtabs.misc_antiaim:Section({Name = "Animation", Side = "Right"}),
 	custom_desync = ui.subtabs.misc_exploit:Section({Name = "Custom desync", Side = "Left"}),
+	quest_main = ui.subtabs.misc_quest:Section({Name = "Auto Quest", Side = "Left"}),
 
 	settings_config = ui.subtabs.settings_main:Section({Name = "Config", Side = "Left"}),	settings_personalization = ui.subtabs.settings_main:Section({Name = "Personalization", Side = "Right"}),
 	theme_config = ui.subtabs.settings_theme:Section({Name = "Config", Side = "Left"}),
@@ -7548,6 +7540,20 @@ do
 				holdbullets_keybind.Set(holdbullets_key, true)
 			end})
 
+			local main_wireframe = Instance.new("WireframeHandleAdornment")
+			main_wireframe.Parent = game:GetService("CoreGui").RobloxGui
+			main_wireframe.Adornee = workspace
+			main_wireframe.Color3 = Color3.new(1, 1, 1)
+			main_wireframe.Transparency = 0
+			main_wireframe.AlwaysOnTop = true
+			main_wireframe.CFrame = CFrame.new()
+			main_wireframe.Scale = Vector3.one
+			main_wireframe.Thickness = 1
+			main_wireframe.AdornCullingMode = Enum.AdornCullingMode.Automatic
+
+			cheat.utility.new_renderstepped(LPH_NO_VIRTUALIZE(function(delta)
+				main_wireframe:Clear()
+			end))
 		end
 	end
 	do
@@ -8264,14 +8270,8 @@ do
 
 				return text_buffer:gsub("[\r\n]$", "")
 			end)
-			local inv_refresh_tick, inv_last_text = 0, nil
 			cheat.utility.new_heartbeat(LPH_JIT(function()
-				local now = os.clock()
-				if now - inv_refresh_tick < 0.1 then return end
-				inv_refresh_tick = now
 				local inventory = target_player and get_player_inventory(target_player) or ""
-				if inventory == inv_last_text then return end
-				inv_last_text = inventory
 				inventory_text.Text = inventory
 				inventory_holder.Size = inventory ~= "" and UDim2.new(0, inventory_text.TextBounds.X + 4, 0, inventory_text.TextBounds.Y + 2) or UDim2.new(0, 0, 0, 0)
 			end))
@@ -8745,11 +8745,7 @@ do
 			local line_dot = cheat.utility.new_drawing("Circle", {Visible = false, Radius = 7, Thickness = 1.5})
 			local line_cdot = cheat.utility.new_drawing("Circle", {Visible = false, Radius = 2, Thickness = 1})
 			local line_txt = cheat.utility.new_drawing("Text", {Visible = false, Size = 13, Center = true, Outline = true})
-			local traj_all_hidden, traj_line_hidden = false, false
 			local function traj_hide()
-				if traj_all_hidden then return end
-				traj_all_hidden = true
-				traj_line_hidden = true
 				for i = 1, 120 do traj_segs[i].Transparency = 1 end
 				for i = 1, 80 do line_segs[i].Transparency = 1 end
 				traj_ball.Visible = false
@@ -8763,8 +8759,6 @@ do
 				line_txt.Visible = false
 			end
 			local function traj_hide_line()
-				if traj_line_hidden then return end
-				traj_line_hidden = true
 				for i = 1, 80 do line_segs[i].Transparency = 1 end
 				line_dot.Visible = false
 				line_cdot.Visible = false
@@ -8790,7 +8784,6 @@ do
 				local origin = Camera.CFrame.Position + Camera.CFrame.LookVector * 1.3
 				local mvel = char.PrimaryPart and char.PrimaryPart.AssemblyLinearVelocity or Vector3.zero
 				if cheat.grenade_predict then
-					traj_all_hidden = false
 					local pts, _, impact_t = grenade_sim(origin, Camera.CFrame.LookVector * speed + mvel * 0.45, info.fuse or 3, cheat.grenade_bounces, info.bounciness or 0.35, info.is_rgo)
 					local n = 1
 					local total = #pts - 1
@@ -8862,7 +8855,6 @@ do
 					if tgt then
 						local dir, err = solve_arc(origin, tgt.Position - Vector3.new(0, 1.2, 0), speed, mvel, info.fuse or 3, info.bounciness or 0.35, info.is_rgo, cheat.grenade_arc)
 						if dir then
-							traj_line_hidden = false
 							local pts = grenade_sim(origin, dir * speed + mvel * 0.45, info.fuse or 3, cheat.grenade_bounces, info.bounciness or 0.35, info.is_rgo)
 							local n = 1
 							local total = #pts - 1
@@ -9166,10 +9158,33 @@ do
 			end
 
 			local fps_object = project_delta.fps_object
-			local use_module_name = fps_object and fps_object.useModuleName
-			local use_func = use_module_name and fps_usetypes[use_module_name]
-			if type(fps_object) == "table" and use_module_name == "RangedWeaponDefault" then
-				pcall(use_func, fps_object)
+
+			-- fixed auto-shoot: resolve the weapon's use function robustly
+			local usetypes = fps_usetypes or project_delta.fps_usetypes
+			if not usetypes and tick() - (cheat.ut_rescan or 0) > 3 then
+				cheat.ut_rescan = tick()
+				for _, v in getgc(true) do
+					if type(v) == "table" and type(rawget(v, "RangedWeaponDefault")) == "function" and type(rawget(v, "MeleeWeaponDefault")) == "function" then
+						project_delta.fps_usetypes = v
+						break
+					end
+				end
+				usetypes = project_delta.fps_usetypes
+			end
+
+			if type(fps_object) == "table" and type(usetypes) == "table" then
+				local use_name = fps_object.useModuleName
+				local use_func = (type(use_name) == "string") and usetypes[use_name] or nil
+
+				if use_name == "MeleeWeaponDefault" then
+					use_func = nil
+				elseif type(use_func) ~= "function" and (fps_object.BulletsList or type(fps_object.Bullets) == "number") then
+					use_func = usetypes.RangedWeaponDefault
+				end
+
+				if type(use_func) == "function" then
+					pcall(use_func, fps_object)
+				end
 			end
 		end
 	end))
@@ -9977,37 +9992,25 @@ do
 			local new_camera_pos
 
 	task.spawn(function()
-		local fc_closest
-		local fc_scan_tick = 0
 		while task.wait(1/5) do
-			if (freecam and freecam_key and new_camera_pos) then
-				local now = os.clock()
-				if now - fc_scan_tick >= 1 then
-					fc_scan_tick = now
 					local closest, distance = nil, math.huge
-					LPH_NO_VIRTUALIZE(function()
-						for i, model in workspace:GetDescendants() do
-							if not _IsA(model, "Model") then continue end
-							local primarypart = model.PrimaryPart
-							if not primarypart then continue end
-							local pos = primarypart.Position
-							local ts_dist = (new_camera_pos - pos).Magnitude
-							if ts_dist < distance then
-								closest, distance = primarypart, ts_dist
+					if (freecam and freecam_key and new_camera_pos) then
+						LPH_NO_VIRTUALIZE(function()
+							for i, model in workspace:GetDescendants() do
+								if not _IsA(model, "Model") then continue end
+								local primarypart = model.PrimaryPart
+								if not primarypart then continue end
+								local pos = primarypart.Position
+								local ts_dist = (new_camera_pos - pos).Magnitude
+								if ts_dist < distance then
+									closest, distance = primarypart, ts_dist
+								end
 							end
-						end
-					end)()
-					fc_closest = closest
+						end)()
+					end
+					LocalPlayer.ReplicationFocus = closest
 				end
-			else
-				fc_closest = nil
-				fc_scan_tick = 0
-			end
-			if fc_closest ~= nil or LocalPlayer.ReplicationFocus ~= nil then
-				LocalPlayer.ReplicationFocus = fc_closest
-			end
-		end
-	end)
+			end)
 
 			game:GetService("RunService").PreRender:Connect(LPH_NO_VIRTUALIZE(function(delta)
 				local character = LocalPlayer.Character
@@ -14064,7 +14067,1218 @@ do
 			end
 		end
 	end)
+
+	-- =====================================================================
+	-- Player checker: name list (file 2) + 0/0 stat alerts
+	-- Toast notifications are shown at the bottom-right edge of the screen
+	-- =====================================================================
+	-- ===== CONFIG : แก้ดีเลย์ (delay) ของ Name checker ได้ตรงนี้ =====
+	local CHECKER_SCAN_DELAY = 5    -- สแกนเช็คเซิฟทุก 5 วินาที
+	local CHECKER_ALERT_REPEATS = 3 -- แจ้งเตือนซ้ำ 3 ครั้ง
+	local CHECKER_ALERT_EVERY = 5   -- ครั้งละ 5 วินาที (3 ครั้ง = 15 วินาที)
+	local ZERO_CONFIRM_TIME = 12    -- ยืนยันก่อนแจ้งเตือนคน 0 Kill / 0 Death (วินาที)
+	-- ================================================================
+	local check_names = {
+		"Mamkin_perotexnik", "rrwwrggrgwr", "Maxikinz", "zDjvbcrd", "dyls_x", "deduct0re",
+		"retrysuk", "ZETA_85", "FancyishFawn", "FlashAshSmash_Reborn", "jannu2010", "UnknownHD222",
+		"vixtorswordmaster", "EXPL0", "Duhacek1112", "hakaji", "DominikK7772", "RunexVikings",
+		"jacks188", "solter", "DartDekster", "AAbattery12344", "DeltaTest11", "Igor_qun",
+		"imseeingredrn", "EpsilonGreedy", "Dexo_ii", "MrGhosty1928", "RuebeHD2", "steretir32323",
+		"PhantomPro2056", "Aydan_1401", "orange_justin3", "markilino10", "ME_BAD90THS", "KBHGaming480",
+		"Gribler1", "Farlan9", "yuckey47", "Sparky_deeny", "Aidenkenkule13", "Juanthebeamer5000",
+		"Old_Shadowist", "AnkroRB", "mightyblast6", "playstoreapplestolen", "robloxparentverify", "Pixelized908",
+		"GentleArmann", "Mr_1Dumpling", "Poptartmainia", "ProfesionalPr0", "wasuphomie1745", "notgoodguyMichael",
+		"wantedcombat", "maasaavainnyaaaa", "PokuBitty", "RaphaGabrielYT", "ENZ0RBK", "kyfoh",
+		"DENIS74525", "DiamondRelic05", "masterdoggo09", "PhantomSkull437", "J_xrg", "Paviic",
+		"rr195356", "kkjjkkjjjkk", "Mr_epicgamer5", "GreenTheCorrupt", "uguigughjgkj1", "reecec345",
+		"khgygh222a", "highfive737", "Fr0ssyt", "Kevified", "EXP_L0", "Lightwolf_h1d1",
+		"diepie201", "SlendiiQ", "DigitalArchives", "notsamesss", "TurnedVile", "SOLO_LOLO",
+		"XuNuo201", "gprolikop", "Obviouslylethal", "OperatorNull0", "KolRstar", "imblu1",
+		"Rupert_Barrq", "IanEyeballs", "hoimeneer75", "snbibbes3", "joycloud", "kittensoldier7",
+		"SalvaVX", "e2equl", "SpO0Ks", "NATAN_133", "abtinchegk", "AlvinepChan",
+		"DozerDaddy", "immu_red", "ThatSprayThough", "LEMONFOXTROT", "ACCIDENTSHAPPEN", "KnifeUserTop1",
+		"50k_freshcash", "Nokky732", "xxkrod06xx", "syedaarish", "MANI124KING", "benjofullscreen666",
+		"gotcharinoes", "jenkinsman4", "f0hoc", "VOLODUMUR22", "ooferman_fade", "XChaosmasterXx50",
+		"Boomy234545", "NotReallyTeal", "dogelordmlgpro123", "ShadowCrossBinder", "Buzzixe", "gggshdjk",
+		"AtomsleyTheCoyote", "GonderDex", "crayzbaconpro998", "Government_ManGM", "lukejoseph210", "MKlargekarp",
+		"Da_ultimatefruitloop", "maybealian", "FabiusCaesar1", "wardog6543211", "Spenklers", "RazorHedgehog",
+		"Klra_man",
+	}
+	local name_lookup = { }
+	for _, name in ipairs(check_names) do
+		name_lookup[string.lower(name)] = true
+	end
+	print("[checker] name list loaded: " .. #check_names .. " names")
+
+	-- bottom-right toast holder (parented to the library popup gui, auto-cleaned on Unload)
+	local toast_holder = Utility.New("Frame", {
+		Name = "checker_toasts",
+		BackgroundTransparency = 1,
+		BorderColor3 = Color3.fromRGB(0, 0, 0),
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -12, 1, -12),
+		Size = UDim2.new(0, 280, 1, -24),
+		Parent = Library.ScreenGuiPopups,
+	})
+
+	Utility.New("UIListLayout", {
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		Parent = toast_holder,
+	})
+
+	local toast_order = 0
+	local toast_stack = { }
+
+	local function escape_rich(str)
+		str = tostring(str)
+		str = str:gsub("&", "&amp;")
+		str = str:gsub("<", "&lt;")
+		str = str:gsub(">", "&gt;")
+		return str
+	end
+
+	local function toast_remove(card)
+		if not card then
+			return
+		end
+		for index = #toast_stack, 1, -1 do
+			if toast_stack[index] == card then
+				table.remove(toast_stack, index)
+				break
+			end
+		end
+		local holder = card.Parent
+		if holder then
+			task.spawn(function()
+				pcall(function()
+					Library.Tween(card, { Position = UDim2.new(1, 0, 0, 0) })
+				end)
+				task.wait(Library.TweenSpeed)
+				pcall(function()
+					holder:Destroy()
+				end)
+			end)
+		end
+	end
+
+	local function push_toast(text, duration, accent)
+		if not toast_holder.Parent then
+			return
+		end
+		toast_order = toast_order + 1
+
+		while #toast_stack >= 7 do
+			toast_remove(toast_stack[1])
+		end
+
+		local holder = Utility.New("Frame", {
+			Name = "toast_item",
+			BackgroundTransparency = 1,
+			BorderColor3 = Color3.fromRGB(0, 0, 0),
+			BorderSizePixel = 0,
+			AutomaticSize = Enum.AutomaticSize.XY,
+			LayoutOrder = toast_order,
+			Parent = toast_holder,
+		})
+
+		local card = Utility.New("TextButton", {
+			Name = "toast_card",
+			BackgroundColor3 = Color3.fromRGB(23, 25, 26),
+			BackgroundTransparency = 0.4,
+			BorderColor3 = Color3.fromRGB(0, 0, 0),
+			BorderSizePixel = 0,
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Position = UDim2.new(1, 0, 0, 0),
+			Size = UDim2.new(0, 280, 0, 0),
+			Parent = holder,
+		}, { BackgroundColor3 = "background" })
+
+		Utility.New("Frame", {
+			Name = "accent",
+			Position = UDim2.new(1, -2, 0, 0),
+			Size = UDim2.new(0, 2, 1, 0),
+			BackgroundColor3 = accent or Color3.fromRGB(220, 100, 100),
+			BorderColor3 = Color3.fromRGB(0, 0, 0),
+			BorderSizePixel = 0,
+			Parent = card,
+		})
+
+		local label = Utility.New("TextLabel", {
+			Name = "toast_text",
+			FontFace = Font.fromEnum(Enum.Font.SourceSans),
+			RichText = true,
+			Text = text,
+			TextColor3 = Color3.fromRGB(230, 230, 230),
+			TextSize = 15,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			BackgroundTransparency = 1,
+			Position = UDim2.new(0, 8, 0, 0),
+			Size = UDim2.new(1, -18, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Parent = card,
+		}, { TextColor3 = "text" })
+
+		Utility.New("UIPadding", {
+			PaddingTop = UDim.new(0, 6),
+			PaddingBottom = UDim.new(0, 6),
+			Parent = label,
+		})
+
+		Utility.Signal(card.MouseButton1Click:Connect(function()
+			toast_remove(card)
+		end))
+
+		table.insert(toast_stack, card)
+
+		task.spawn(function()
+			if card.Parent then
+				pcall(function()
+					Library.Tween(card, { Position = UDim2.new(0, 0, 0, 0) })
+				end)
+			end
+		end)
+
+		task.delay(duration or 8, function()
+			toast_remove(card)
+		end)
+	end
+
+	-- แจ้งเตือนซ้ำ: 3 ครั้งใน 15 วินาที ครั้งละ 5 วินาที (ตามค่า CONFIG ด้านบน)
+	local function push_toast_repeat(text, accent)
+		task.spawn(function()
+			for i = 1, CHECKER_ALERT_REPEATS do
+				push_toast(text, CHECKER_ALERT_EVERY, accent)
+				if i < CHECKER_ALERT_REPEATS then
+					task.wait(CHECKER_ALERT_EVERY)
+				end
+			end
+		end)
+	end
+	-- stats source (same path as the existing cheater detector)
+	local function get_player_stats(player)
+		local ok, stats = pcall(function()
+			local folder = game:GetService("ReplicatedStorage"):FindFirstChild("Players")
+			local data = folder and folder:FindFirstChild(player.Name)
+			local status = data and data:FindFirstChild("Status")
+			local journey = status and status:FindFirstChild("Journey")
+			return journey and journey:FindFirstChild("Statistics") or nil
+		end)
+		if ok then
+			return stats
+		end
+		return nil
+	end
+
+	local function read_stat(stats, ...)
+		local keys = { ... }
+		for _, key in ipairs(keys) do
+			local value = stats:GetAttribute(key)
+			if value ~= nil then
+				return value
+			end
+		end
+		return nil
+	end
+
+	local function is_zero_player(player)
+		local stats = get_player_stats(player)
+		if not stats then
+			return false
+		end
+		local kills = read_stat(stats, "K_PVP", "Kills")
+		local deaths = read_stat(stats, "D_PVP", "Deaths")
+		if kills == nil or deaths == nil then
+			return false
+		end
+		return kills == 0 and deaths == 0
+	end
+
+	local name_notified = { }
+	local zero_seen = { }
+	local zero_notified = { }
+	local checker_names_enabled = false
+	local checker_zero_enabled = false
+
+	Utility.Signal(Players.PlayerRemoving:Connect(function(player)
+		zero_seen[player] = nil
+		zero_notified[player] = nil
+		if name_notified[player] then
+			name_notified[player] = nil
+			if checker_names_enabled then
+				push_toast("<b>" .. escape_rich(player.Name) .. "</b> Moderator leave Server", 8, Color3.fromRGB(160, 160, 160))
+			end
+		end
+	end))
+
+	miscsec:Toggle({ Name = "Moderator checker", Value = false, Flag = "checker_names", Callback = function(bool)
+		checker_names_enabled = bool
+		if not bool then
+			table.clear(name_notified)
+		end
+	end })
+
+	miscsec:Toggle({ Name = "0/0 stat detector", Value = false, Flag = "checker_zero_stats", Callback = function(bool)
+		checker_zero_enabled = bool
+		if not bool then
+			table.clear(zero_seen)
+			table.clear(zero_notified)
+		end
+	end })
+
+	miscsec:Button({ Name = "Check server now", Callback = function()
+		local matches = { }
+		local zeros = { }
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= LocalPlayer then
+				if name_lookup[string.lower(tostring(player.Name))] then
+					table.insert(matches, tostring(player.Name))
+				end
+				if is_zero_player(player) then
+					table.insert(zeros, tostring(player.Name))
+				end
+			end
+		end
+		local function summarize(list)
+			if #list == 0 then
+				return "none"
+			end
+			local shown = { }
+			for i = 1, math.min(#list, 8) do
+				shown[#shown + 1] = list[i]
+			end
+			local text = table.concat(shown, ", ")
+			if #list > 8 then
+				text = text .. " (+" .. (#list - 8) .. ")"
+			end
+			return text
+		end
+		if #matches > 0 then
+			push_toast(("Moderator %d คน: %s"):format(#matches, summarize(matches)), 10, Color3.fromRGB(220, 100, 100))
+		end
+		if #zeros > 0 then
+			push_toast(("Statistics 0 Kill / 0 Death (K/D 0) %d คน: %s"):format(#zeros, summarize(zeros)), 10, Color3.fromRGB(230, 190, 80))
+		end
+		if #matches == 0 and #zeros == 0 then
+			push_toast("Not found 0/0 In Servers", 6, Color3.fromRGB(160, 160, 160))
+		end
+	end })
+
+	local checker_tick = 0
+	cheat.utility.new_heartbeat(function()
+		if not toast_holder.Parent then
+			return
+		end
+		if os.clock() - checker_tick < CHECKER_SCAN_DELAY then
+			return
+		end
+		checker_tick = os.clock()
+		if not (checker_names_enabled or checker_zero_enabled) then
+			return
+		end
+		pcall(function()
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= LocalPlayer then
+					if checker_names_enabled and not name_notified[player] then
+						if name_lookup[string.lower(tostring(player.Name))] then
+							name_notified[player] = true
+							push_toast_repeat(("Moderator: <b>%s</b> (%s)"):format(escape_rich(player.Name), escape_rich(tostring(player.DisplayName))), Color3.fromRGB(220, 100, 100))
+						end
+					end
+					if checker_zero_enabled and not zero_notified[player] then
+						if is_zero_player(player) then
+							local first_seen = zero_seen[player]
+							if not first_seen then
+								zero_seen[player] = os.clock()
+							elseif os.clock() - first_seen >= ZERO_CONFIRM_TIME then
+								zero_notified[player] = true
+								push_toast_repeat(("Statistics 0 Kill / 0 Death (K/D 0): <b>%s</b> (%s)"):format(escape_rich(player.Name), escape_rich(tostring(player.DisplayName))), Color3.fromRGB(230, 190, 80))
+							end
+						else
+							zero_seen[player] = nil
+						end
+					end
+				end
+			end
+		end)
+	end)
 end
+-- Auto Quest: auto accept / auto complete / auto hand-over items (silent)
+-- "Activate" = accept quest, "Complete" = turn quest in,
+-- "HandOver" = deliver the quest items to an NPC
+-- Captured server answers:
+--   Activate              -> returns the quest object
+--                            (...Status.Journey.Quests.<name>) on success,
+--                            HANGS when the quest is already active (State=Active)
+--   Complete              -> returns true on success (objectives done)
+--   HandOver "<npcName>"  -> returns true on success (CONFIRMED by packet
+--                            capture - "HandOver", "Blaze" -> true; the
+--                            argument is the NPC NAME, not the quest name)
+-- v12: no screen notifications and self-chaining. v11 waited for State=
+-- "Complete" before turning a quest in,
+-- but the server only sets that state AFTER a successful Complete call, so
+-- a delivered quest stayed State=Active forever: nothing was turned in and
+-- nothing was re-accepted. Now Complete is tried for every quest we own
+-- (the server itself validates readiness), and any HandOver that answers
+-- true triggers an instant turn-in chain -> automatic re-accept.
+-- v13: farming list = every quest from the user's quest log (73 remote
+-- keys, CamelCase rule "Occupation Forces pt. 2" -> "OccupationForcesPt2",
+-- proven by the captures) + alternate spellings via the slow prober;
+-- VaultManager and Birss joined the delivery sweep.
+-- v14: fully silent (every warn and the startup F9 dump removed - the
+-- console shows nothing at all) and tuned for no lag: cached quest
+-- folder, cached requirements, the watcher only scans quests the server
+-- actually replicated.
+do
+        local quest_unloaded = false
+
+        -- hook Unload BEFORE init so the background loops always stop even if init fails
+        local old_library_unload = Library.Unload
+        Library.Unload = function()
+                quest_unloaded = true
+                return old_library_unload()
+        end
+
+        local ok_quest_init, err_quest_init = pcall(function()
+                local ReplicatedStorage = game:GetService("ReplicatedStorage")
+                local PlayersService = game:GetService("Players")
+
+                -- confirmed quests, farmed every round at full speed
+                -- (packet-proven keys first, then every quest from the
+                -- user's quest log; display name -> CamelCase key:
+                -- "Occupation Forces pt. 2" -> "OccupationForcesPt2")
+                local confirmed_list = {
+                        -- proven by packet captures
+                        "Rations", "Deficit", "NoviceMarksman", "BossFirst", "OccupationForces",
+                        "OccupationForcesPt2", "PequodDown", "FlightRecorder", "DistressSignal",
+                        -- from the user's quest log screenshot
+                        "WeeklyQuest", "DailyQuest", "MustBeGhosts", "RoadRage", "CatOutOfTheBag",
+                        "FearmongeringPt1", "Deflooding", "CloakedInDarkness", "GamingPCPt2", "BusinessPlan",
+                        "OnTheTrail", "ExpandingPt1", "PilotEpisode", "EastBreakthrough", "WhiteDeath",
+                        "PostersPt1", "JailBreak", "OccupationForcesPt1", "ArmySurplus", "FearmongeringPt2",
+                        "PumpkinsInOddPlaces", "GamingPCPt1", "BloodMoonTerrorizer", "WickedIvanPt2", "BoomingBusiness",
+                        "PostersPt2", "SewingMachine", "SoLongOldFriend", "OneHundred", "TacticalAttire",
+                        "PostersPt3", "ThisIsARobbery", "4DaysIn", "IronFistReign", "WickedIvanPt3",
+                        "DistinguishedMarksman", "FreshAir", "Liquidator", "SkilledMarksman", "PizzaSinNombre",
+                        "Warlord", "LeakingTunnelsPt1", "RedBunker", "CrazyHandfulOfNothin", "ChocolateThiefPt2",
+                        "TriggerHappy", "HeavyMetal", "WickedIvanPt1", "PostersPt4", "PrototypePt1",
+                        "MedicalShipment", "WrongPath", "KingInTheCastle", "LegendaryMarksman", "EstonianTouristPt1",
+                        "KingdomOfRuin", "YuriPt1", "ExponentialGrowthPt1", "Terminator", "ChocolateThiefPt1",
+                        "Convoy", "Kaboom", "ArmorMatters", "EstonianTouristPt2"
+                }
+                local confirmed_set = {}
+                for _, n in ipairs(confirmed_list) do
+                        confirmed_set[n] = true
+                end
+
+                -- quests WE accepted ourselves this session (proof, not a
+                -- guessed state): Activate is skipped only for these, because
+                -- calling Activate on an already-accepted quest hangs the
+                -- server; offered / new quests are always tried
+                local accepted_set = {}
+
+                -- every NPC name in the game; swept with HandOver for item
+                -- delivery and probed as quest keys by the slow prober
+                local npc_candidates = { "Anna", "Tarmo", "Seryozha", "Nurse", "Blaze", "Mihkel", "Boss", "Designer", "George", "Jake", "The Broker", "VaultManager", "Birss" }
+
+                local function mark_confirmed(quest_name)
+                        if not quest_name or confirmed_set[quest_name] then
+                                return false
+                        end
+                        confirmed_set[quest_name] = true
+                        table.insert(confirmed_list, tostring(quest_name))
+                        return true
+                end
+
+                -- best lag-free pacing: 0.5s between real remote calls
+                local ACCEPT_DELAY = 0.5
+                local COMPLETE_DELAY = 0.5
+
+                local auto_accept = false
+                local auto_complete = false
+                local quest_send_equip = true
+                local quest_remote = nil
+                local equip_remote = nil
+
+                -- resolve ReplicatedStorage.Remotes.QuestUpdate (+Equip) without blocking the main script
+                task.spawn(function()
+                        local remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 30)
+                        if remotes then
+                                quest_remote = remotes:FindFirstChild("QuestUpdate") or remotes:WaitForChild("QuestUpdate", 30)
+                                equip_remote = remotes:FindFirstChild("Equip") or remotes:WaitForChild("Equip", 15)
+                        end
+                end)
+
+                -- locate the player's replicated quest folder:
+                -- ReplicatedStorage.Players.<LocalPlayer>.Status.Journey.Quests
+                -- the path never changes, so resolve it ONCE and cache it
+                -- (re-checked every 30s) - walking it for every quest on
+                -- every pass was the biggest client-side cost
+                local quests_folder_cache = nil
+                local quests_folder_stamp = 0
+                local function find_quests_folder()
+                        local now = os.clock()
+                        if quests_folder_cache and now - quests_folder_stamp < 30 then
+                                return quests_folder_cache
+                        end
+                        quests_folder_stamp = now
+                        local ok, folder = pcall(function()
+                                local rs_players = ReplicatedStorage:FindFirstChild("Players")
+                                local lp = PlayersService.LocalPlayer
+                                if not rs_players or not lp then
+                                        return nil
+                                end
+                                local plr = rs_players:FindFirstChild(lp.Name)
+                                if not plr then
+                                        return nil
+                                end
+                                local status = plr:FindFirstChild("Status")
+                                if not status then
+                                        return nil
+                                end
+                                local journey = status:FindFirstChild("Journey")
+                                if not journey then
+                                        return nil
+                                end
+                                return journey:FindFirstChild("Quests")
+                        end)
+                        if ok and folder then
+                                quests_folder_cache = folder
+                        end
+                        return quests_folder_cache
+                end
+
+                local function get_quest_object(quest_name)
+                        local folder = find_quests_folder()
+                        if not folder then
+                                return nil
+                        end
+                        local ok, obj = pcall(folder.FindFirstChild, folder, tostring(quest_name))
+                        if ok then
+                                return obj
+                        end
+                        return nil
+                end
+
+                -- replicated quest state: "Active" = accepted & in progress
+                -- (stays "Active" even right after the items were handed
+                -- over; it flips to "Complete" only AFTER a successful
+                -- Complete call), nil = unknown -> never wait for "Complete"
+                -- before turning a quest in (that deadlocked v11)
+                local function quest_state(quest_name)
+                        local obj = get_quest_object(quest_name)
+                        if not obj then
+                                return nil, nil
+                        end
+                        local state = nil
+                        pcall(function()
+                                state = obj:GetAttribute("State")
+                        end)
+                        return obj, state
+                end
+
+                local function get_quest_names()
+                        local names = {}
+                        for _, name in ipairs(confirmed_list) do
+                                table.insert(names, tostring(name))
+                        end
+                        return names
+                end
+
+                -- InvokeServer with a hard timeout: if the server never answers,
+                -- return (false, "no response") instead of freezing this thread forever
+                local function invoke_quest(mode, arg, timeout)
+                        if not quest_remote then
+                                return false, "remote not found"
+                        end
+                        local answered, ok_call, result = false, nil, nil
+                        local thr = task.spawn(function()
+                                local o, r = pcall(function()
+                                        return quest_remote:InvokeServer(mode, arg)
+                                end)
+                                answered, ok_call, result = true, o, r
+                        end)
+                        local t0 = os.clock()
+                        while not answered and os.clock() - t0 < timeout do
+                                task.wait(0.1)
+                        end
+                        if not answered then
+                                pcall(task.cancel, thr)
+                                return false, "no response"
+                        end
+                        return ok_call, result
+                end
+
+                -- the captured packets also fired Remotes.Equip:FireServer(nil)
+                -- right after a successful accept, so replay it (always on)
+                local function send_equip()
+                        if quest_send_equip and equip_remote then
+                                task.spawn(function()
+                                        pcall(function()
+                                                equip_remote:FireServer(nil)
+                                        end)
+                                end)
+                        end
+                end
+
+                -- success checks based on the captured return values
+                local function activate_ok(ok, result)
+                        return ok == true and result ~= nil and result ~= false
+                end
+                local function complete_ok(ok, result)
+                        return ok == true and result == true
+                end
+
+                -- ===== recursive quest-requirement reader =====
+                -- normalize a key: lowercase, strip digits/underscores ("Item2" -> "item")
+                local function norm_key(k)
+                        local s = string.lower(tostring(k))
+                        s = string.gsub(s, "[%d_]+", "")
+                        return s
+                end
+
+                local ITEM_KEYS = { item = true, itemname = true, itemid = true, itemtype = true, object = true, objectname = true, tool = true, deliver = true, delivery = true, give = true, handover = true, require = true, requires = true, requireditem = true }
+                local COUNT_KEYS = { count = true, amount = true, need = true, needed = true, required = true, requirecount = true, total = true, goal = true, quantity = true, qty = true, targetcount = true }
+                local PROGRESS_KEYS = { progress = true, current = true, delivered = true, have = true, done = true, completed = true, collected = true }
+                local RESERVED_KEYS = { state = true, seed = true, type = true, stage = true, phase = true, badge = true, badgegiven = true, quest = true, quests = true, objective = true, guid = true, index = true, slot = true, name = true, id = true, owner = true, kills = true, killsneeded = true }
+
+                local function scan_npc_strings(value, found_npcs)
+                        if type(value) == "string" and value ~= "" then
+                                local lv = string.lower(value)
+                                for _, npcn in ipairs(npc_candidates) do
+                                        if lv == string.lower(npcn) then
+                                                table.insert(found_npcs, npcn)
+                                                break
+                                        end
+                                end
+                        end
+                end
+
+                -- recursively scan one node (attrs + Values + child folders)
+                local function scan_requirement_node(obj, depth, req, found_npcs, is_root)
+                        if not obj or depth <= 0 then
+                                return
+                        end
+                        pcall(function()
+                                for k, v in pairs(obj:GetAttributes()) do
+                                        local nk = norm_key(k)
+                                        scan_npc_strings(v, found_npcs)
+                                        if type(v) == "string" then
+                                                if ITEM_KEYS[nk] and req.item == nil and not RESERVED_KEYS[nk] then
+                                                        req.item = v
+                                                end
+                                        elseif type(v) == "number" then
+                                                if PROGRESS_KEYS[nk] then
+                                                        req.progress = v
+                                                elseif COUNT_KEYS[nk] and req.count == nil then
+                                                        req.count = v
+                                                end
+                                        end
+                                end
+                        end)
+                        pcall(function()
+                                for _, c in ipairs(obj:GetChildren()) do
+                                        local cn = norm_key(c.Name)
+                                        if c:IsA("StringValue") then
+                                                scan_npc_strings(c.Value, found_npcs)
+                                                if req.item == nil and c.Value ~= nil and c.Value ~= "" then
+                                                        if ITEM_KEYS[cn] then
+                                                                req.item = c.Value
+                                                        elseif not RESERVED_KEYS[cn] and not COUNT_KEYS[cn] and not PROGRESS_KEYS[cn] then
+                                                                -- unknown-named string: accept short single words as the item
+                                                                local sv = tostring(c.Value)
+                                                                if string.len(sv) <= 40 and not string.find(sv, " ", 1, true) then
+                                                                        req.item = sv
+                                                                end
+                                                        end
+                                                end
+                                        elseif c:IsA("IntValue") or c:IsA("NumberValue") then
+                                                if PROGRESS_KEYS[cn] then
+                                                        req.progress = c.Value
+                                                elseif COUNT_KEYS[cn] then
+                                                        if req.count == nil then
+                                                                req.count = c.Value
+                                                        end
+                                                elseif not RESERVED_KEYS[cn] and not COUNT_KEYS[cn] and not PROGRESS_KEYS[cn] then
+                                                        -- pattern: <ItemName>(IntValue) = amount
+                                                        if req.item == nil then
+                                                                req.item = c.Name
+                                                                req.count = c.Value
+                                                        end
+                                                end
+                                        elseif c:IsA("Folder") or c:IsA("Configuration") then
+                                                if not RESERVED_KEYS[cn] and not is_root then
+                                                        -- remember the objective folder name as a fallback hint
+                                                        req.folder_hint = c.Name
+                                                end
+                                                scan_requirement_node(c, depth - 1, req, found_npcs, false)
+                                        end
+                                end
+                        end)
+                end
+
+                -- returns { item, count, progress, npc } or nil
+                local function read_requirements(quest_name)
+                        local obj = get_quest_object(quest_name)
+                        if not obj then
+                                return nil
+                        end
+                        local req = { item = nil, count = nil, progress = nil, folder_hint = nil }
+                        local found_npcs = {}
+                        scan_requirement_node(obj, 4, req, found_npcs, true)
+                        if not req.item and req.count and req.folder_hint then
+                                req.item = req.folder_hint
+                        end
+                        if req.item and not req.count then
+                                req.count = 1
+                        end
+                        if req.item and req.count then
+                                req.npc = found_npcs[1]
+                                return req
+                        end
+                        return nil
+                end
+
+                -- does this quest carry an item objective (Fetch / HandOver)?
+                local function has_handover_objective(obj)
+                        if not obj then
+                                return false
+                        end
+                        local found = false
+                        pcall(function()
+                                for _, d in ipairs(obj:GetDescendants()) do
+                                        local n = norm_key(d.Name)
+                                        if string.find(n, "handover", 1, true) or string.find(n, "deliver", 1, true) or string.find(n, "give", 1, true) or string.find(n, "fetch", 1, true) then
+                                                found = true
+                                                break
+                                        end
+                                end
+                        end)
+                        return found
+                end
+
+                -- per-quest caches: the objective type and the item
+                -- requirements never change while the quest exists, so they
+                -- are read once instead of on every watcher pass
+                local handover_cache = {}
+                local req_cache = {}
+                local function cached_has_handover(quest_name, obj)
+                        local c = handover_cache[quest_name]
+                        if c == nil then
+                                c = has_handover_objective(obj) and true or false
+                                handover_cache[quest_name] = c
+                        end
+                        return c
+                end
+                local function cached_requirements(quest_name)
+                        local c = req_cache[quest_name]
+                        local now = os.clock()
+                        if c and (c.req or now - c.stamp < 60) then
+                                return c.req
+                        end
+                        local req = read_requirements(quest_name)
+                        req_cache[quest_name] = { req = req, stamp = now }
+                        return req
+                end
+
+                -- ===== recursive inventory counter over the real containers =====
+                local function count_matching_deep(container, item_lower, depth)
+                        local n = 0
+                        if not container or depth <= 0 then
+                                return 0
+                        end
+                        pcall(function()
+                                for _, c in ipairs(container:GetChildren()) do
+                                        if string.find(string.lower(c.Name), item_lower, 1, true) then
+                                                n = n + 1
+                                        end
+                                        if c:IsA("Folder") or c:IsA("Configuration") then
+                                                n = n + count_matching_deep(c, item_lower, depth - 1)
+                                        end
+                                end
+                        end)
+                        return n
+                end
+
+                local function count_item(item_name)
+                        local lp = PlayersService.LocalPlayer
+                        if not lp or not item_name then
+                                return 0
+                        end
+                        local item_lower = string.lower(tostring(item_name))
+                        local total = 0
+                        total = total + count_matching_deep(lp:FindFirstChild("Backpack"), item_lower, 2)
+                        total = total + count_matching_deep(lp:FindFirstChild("Character"), item_lower, 2)
+                        local rs_players = ReplicatedStorage:FindFirstChild("Players")
+                        local plr = rs_players and rs_players:FindFirstChild(lp.Name)
+                        if plr then
+                                for _, cname in ipairs({ "Inventory", "VaultStorage", "Items", "Backpack" }) do
+                                        total = total + count_matching_deep(plr:FindFirstChild(cname), item_lower, 3)
+                                end
+                                local status = plr:FindFirstChild("Status")
+                                if status then
+                                        total = total + count_matching_deep(status:FindFirstChild("GrantedItems"), item_lower, 2)
+                                end
+                        end
+                        return total
+                end
+
+                -- backoff: after a hang / rejection skip this quest+mode for a
+                -- mode-specific pause so one bad call cannot slow the round
+                -- (Activate hangs are the expensive ones -> longer pause)
+                local skip_until = {}
+                -- consecutive Activate hangs with no quest object created:
+                -- almost certainly a wrong/locked name -> back off longer
+                local hang_fails = {}
+                local function is_skipped(mode, quest_name)
+                        local until_t = skip_until[mode .. ":" .. quest_name]
+                        return until_t ~= nil and os.clock() < until_t
+                end
+                local function set_backoff(mode, quest_name, hang_fails)
+                        local pause
+                        if mode == "Activate" then
+                                pause = (hang_fails and hang_fails >= 3) and 600 or 120
+                        else
+                                pause = 15
+                        end
+                        skip_until[mode .. ":" .. quest_name] = os.clock() + pause
+                end
+
+                -- shared gating for the loops and the manual buttons:
+                --   Activate: skip ONLY when we accepted it ourselves this
+                --     session and it is still State=Active (those calls
+                --     hang); offered / new / unknown-state quests are tried
+                --   Complete: never guess - fire for every quest object we
+                --     own (the server answers true only when it is really
+                --     finished; a delivered quest stays State=Active until
+                --     it is turned in)
+                local function should_skip(mode, quest_name)
+                        if mode == "Activate" then
+                                -- fast path: quests we never accepted this
+                                -- session are always tried (no state walk)
+                                if accepted_set[quest_name] ~= true then
+                                        return false
+                                end
+                                local obj, state = quest_state(quest_name)
+                                return obj ~= nil and state == "Active"
+                        end
+                        local obj = get_quest_object(quest_name)
+                        return obj == nil
+                end
+
+                -- a quest was just turned in: allow its re-accept, clear both
+                -- backoffs and accept it again immediately (retry while the
+                -- server is slow)
+                local function on_complete_success(quest_name)
+                        accepted_set[quest_name] = nil
+                        skip_until["Activate:" .. quest_name] = nil
+                        skip_until["Complete:" .. quest_name] = nil
+                        if auto_accept and not quest_unloaded then
+                                local qname = quest_name
+                                task.spawn(function()
+                                        for _ = 1, 3 do
+                                                local ok2, result2 = invoke_quest("Activate", qname, 8)
+                                                if ok2 or quest_unloaded or not auto_accept then
+                                                        if activate_ok(ok2, result2) then
+                                                                accepted_set[qname] = true
+                                                                send_equip()
+                                                        end
+                                                        return
+                                                end
+                                                task.wait(2)
+                                        end
+                                        set_backoff("Activate", qname)
+                                end)
+                        end
+                end
+
+                -- fire every confirmed quest once (manual buttons); same
+                -- gating as the background loops (should_skip)
+                local function run_once(mode)
+                        if not quest_remote then
+                                return
+                        end
+                        local names = get_quest_names()
+                        if #names == 0 then
+                                return
+                        end
+                        for _, quest_name in ipairs(names) do
+                                local skip_this = is_skipped(mode, quest_name) or should_skip(mode, quest_name)
+                                if not skip_this then
+                                        local ok, result = invoke_quest(mode, quest_name, 6)
+                                        if mode == "Activate" and activate_ok(ok, result) then
+                                                accepted_set[quest_name] = true
+                                                hang_fails[quest_name] = nil
+                                                send_equip()
+                                        end
+                                        if mode == "Complete" and complete_ok(ok, result) then
+                                                on_complete_success(quest_name)
+                                        end
+                                end
+                                task.wait(skip_this and 0.05 or 0.15)
+                        end
+                end
+
+                -- background loop for the auto toggles; runs until Unload.
+                -- v12: Activate skips only quests we accepted ourselves
+                -- (0.05s each); Complete is fired for EVERY quest object we
+                -- own - a delivered quest stays State=Active until IT is
+                -- turned in, so v11's "wait for State=Complete" skip blocked
+                -- the whole progression and nothing was ever re-accepted
+                local function quest_loop(mode, is_enabled, delay)
+                        while not quest_unloaded do
+                                if is_enabled() then
+                                        for _, quest_name in ipairs(get_quest_names()) do
+                                                if quest_unloaded or not is_enabled() then break end
+                                                local skip_this = true
+                                                if not is_skipped(mode, quest_name) and not should_skip(mode, quest_name) then
+                                                        skip_this = false
+                                                        local ok, result = invoke_quest(mode, quest_name, 3)
+                                                        if ok and mode == "Activate" and activate_ok(ok, result) then
+                                                                accepted_set[quest_name] = true
+                                                                hang_fails[quest_name] = nil
+                                                                send_equip()
+                                                        elseif ok and mode == "Complete" and complete_ok(ok, result) then
+                                                                on_complete_success(quest_name)
+                                                        elseif not ok or mode == "Activate" then
+                                                                if not ok and mode == "Activate" then
+                                                                        if get_quest_object(quest_name) then
+                                                                                -- the call timed out but the quest object
+                                                                                -- appeared: the accept went through, the
+                                                                                -- answer was just lost
+                                                                                accepted_set[quest_name] = true
+                                                                        else
+                                                                                -- hang with no object: wrong or locked
+                                                                                -- name; repeat offenders back off longer
+                                                                                hang_fails[quest_name] = (hang_fails[quest_name] or 0) + 1
+                                                                        end
+                                                                end
+                                                                -- hang, or clean rejection (locked / already
+                                                                -- turned in): pause this quest+mode for a bit
+                                                                set_backoff(mode, quest_name, hang_fails[quest_name])
+                                                        end
+                                                end
+                                                if quest_unloaded or not is_enabled() then break end
+                                                task.wait(skip_this and 0.05 or delay)
+                                        end
+                                end
+                                task.wait(0.25)
+                        end
+                end
+
+                task.spawn(quest_loop, "Activate", function() return auto_accept end, ACCEPT_DELAY)
+                task.spawn(quest_loop, "Complete", function() return auto_complete end, COMPLETE_DELAY)
+
+                -- live discovery: every quest object under the player's
+                -- Status.Journey.Quests is a real quest -> farm it automatically
+                task.spawn(function()
+                        local quests_folder = nil
+                        while not quest_unloaded and quests_folder == nil do
+                                quests_folder = find_quests_folder()
+                                if not quests_folder then
+                                        task.wait(3)
+                                end
+                        end
+                        if quests_folder and not quest_unloaded then
+                                for _, c in ipairs(quests_folder:GetChildren()) do
+                                        mark_confirmed(c.Name)
+                                end
+                                pcall(function()
+                                        quests_folder.ChildAdded:Connect(function(c)
+                                                if c and c.Name and c.Name ~= "" then
+                                                        mark_confirmed(c.Name)
+                                                end
+                                        end)
+                                end)
+                        end
+                end)
+
+                -- new-quest discovery: quest names hidden in the Journey tree
+                -- (the quest book the game replicates next to Status.Journey.
+                -- Quests) + the NPC names, probed SLOWLY - one Activate every
+                -- 15s - so a wrong guess can never flood the server; a name
+                -- the server accepts joins the fast farming list immediately
+                local candidate_list = {}
+                local candidate_set = {}
+                local candidate_backoff = {}
+                local function add_candidate(name)
+                        if not name or candidate_set[name] or confirmed_set[name] then
+                                return
+                        end
+                        if #candidate_list >= 60 then
+                                return
+                        end
+                        candidate_set[name] = true
+                        table.insert(candidate_list, tostring(name))
+                end
+                for _, npc_name in ipairs(npc_candidates) do
+                        add_candidate(npc_name)
+                end
+                -- alternate spellings of quest names whose display text does
+                -- not map 1:1 to a remote key (apostrophes, hyphens, lowercase
+                -- of/a); the slow prober tries them one by one
+                local variant_seeds = { "MustbeGhosts", "PumpkinsinOddPlaces", "One-Hundred", "ThisIsaRobbery", "ThisIsARobbery!", "4Daysin", "FourDaysIn", "CrazyHandfulofNothin", "CrazyHandfulOfNothin'", "KingOfTheCastle", "KingintheCastle", "KingdomofRuin", "Kingdomofruin", "PizzasinNombre", "Weekly", "Daily" }
+                for _, vname in ipairs(variant_seeds) do
+                        add_candidate(vname)
+                end
+                local function harvest_journey_names()
+                        local journey = nil
+                        pcall(function()
+                                local folder = find_quests_folder()
+                                journey = folder and folder.Parent
+                        end)
+                        if not journey then
+                                return
+                        end
+                        pcall(function()
+                                for _, branch in ipairs(journey:GetChildren()) do
+                                        if branch:IsA("StringValue") then
+                                                local v = branch.Value
+                                                if type(v) == "string" and string.match(v, "^[A-Za-z][A-Za-z0-9]{3,29}$") then
+                                                        add_candidate(v)
+                                                end
+                                        elseif branch:IsA("Folder") or branch:IsA("Configuration") then
+                                                for _, leaf in ipairs(branch:GetChildren()) do
+                                                        if leaf:IsA("StringValue") then
+                                                                local v = leaf.Value
+                                                                if type(v) == "string" and string.match(v, "^[A-Za-z][A-Za-z0-9]{3,29}$") then
+                                                                        add_candidate(v)
+                                                                end
+                                                        else
+                                                                add_candidate(leaf.Name)
+                                                        end
+                                                end
+                                        end
+                                end
+                        end)
+                end
+                task.spawn(function()
+                        while not quest_unloaded do
+                                task.wait(15)
+                                if not quest_unloaded and auto_accept and quest_remote then
+                                        harvest_journey_names()
+                                        for _, cname in ipairs(candidate_list) do
+                                                if quest_unloaded or not auto_accept then break end
+                                                if not confirmed_set[cname] and not get_quest_object(cname) then
+                                                        local until_t = candidate_backoff[cname]
+                                                        if until_t == nil or os.clock() >= until_t then
+                                                                local ok, result = invoke_quest("Activate", cname, 6)
+                                                                if activate_ok(ok, result) then
+                                                                        mark_confirmed(cname)
+                                                                        accepted_set[cname] = true
+                                                                        send_equip()
+                                                                else
+                                                                        -- locked / wrong guess / hang: leave it alone for 2 min
+                                                                        candidate_backoff[cname] = os.clock() + 120
+                                                                end
+                                                                break -- one probe per 15s tick
+                                                        end
+                                                end
+                                        end
+                                end
+                        end
+                end)
+
+                -- ===== delivery with the CONFIRMED call =====
+                -- QuestUpdate:InvokeServer("HandOver", <npcName>) -> true on
+                -- success. The argument is the NPC name, not the quest name -
+                -- the server hands over whatever quest items match that NPC.
+                local handover_last = 0
+                local HANDOVER_SWEEP_COOLDOWN = 60
+                local npc_handover_block = {}
+                local HANDOVER_NPC_BLOCK_TIME = 60
+
+                local function handover_npc(npc_name)
+                        if not quest_remote or quest_unloaded then
+                                return false
+                        end
+                        local now = os.clock()
+                        if npc_handover_block[npc_name] and now < npc_handover_block[npc_name] then
+                                return false
+                        end
+                        local ok, result = invoke_quest("HandOver", npc_name, 5)
+                        if ok == true and result == true then
+                                -- the quest that just got its items stays
+                                -- State=Active until it is turned in: free the
+                                -- Complete backoff of every hand-over quest so
+                                -- the turn-in chain can fire right away
+                                local folder = find_quests_folder()
+                                if folder then
+                                        local okh, kids = pcall(folder.GetChildren, folder)
+                                        if okh and kids then
+                                                for _, q in ipairs(kids) do
+                                                        if q and q.Name and cached_has_handover(q.Name, q) then
+                                                                skip_until["Complete:" .. q.Name] = nil
+                                                        end
+                                                end
+                                        end
+                                end
+                                return true
+                        elseif not ok then
+                                -- server never answered -> nothing to hand over
+                                -- here; stop bothering this NPC for a while
+                                npc_handover_block[npc_name] = os.clock() + HANDOVER_NPC_BLOCK_TIME
+                        end
+                        return false
+                end
+
+                -- INSTANT CHAIN: right after a delivery answers true, try to
+                -- turn every owned quest in (hand-over quests first - the one
+                -- that just got its items is almost certainly one of them).
+                -- The first quest the server completes triggers the instant
+                -- re-accept (on_complete_success), so deliver -> turn in ->
+                -- accept next runs hands-free.
+                local chain_running = false
+                local function run_turnin_chain()
+                        if chain_running or quest_unloaded or not auto_complete or not quest_remote then
+                                return
+                        end
+                        chain_running = true
+                        task.spawn(function()
+                                pcall(function()
+                                        local folder = find_quests_folder()
+                                        if not folder then
+                                                return
+                                        end
+                                        local first_list, rest_list = {}, {}
+                                        for _, q in ipairs(folder:GetChildren()) do
+                                                if q and q.Name and q.Name ~= "" then
+                                                        if cached_has_handover(q.Name, q) then
+                                                                table.insert(first_list, q.Name)
+                                                        else
+                                                                table.insert(rest_list, q.Name)
+                                                        end
+                                                end
+                                        end
+                                        for _, group in ipairs({ first_list, rest_list }) do
+                                                for _, qname in ipairs(group) do
+                                                        if quest_unloaded or not auto_complete then
+                                                                return
+                                                        end
+                                                        if not is_skipped("Complete", qname) then
+                                                                local obj = get_quest_object(qname)
+                                                                if obj then
+                                                                        local ok, result = invoke_quest("Complete", qname, 4)
+                                                                        if complete_ok(ok, result) then
+                                                                                on_complete_success(qname)
+                                                                        elseif not ok then
+                                                                                set_backoff("Complete", qname)
+                                                                        end
+                                                                        task.wait(0.5)
+                                                                end
+                                                        end
+                                                end
+                                        end
+                                end)
+                                chain_running = false
+                        end)
+                end
+
+                -- sweep every NPC with the confirmed HandOver call; the server
+                -- answers true on each hand-over it accepts
+                local function handover_sweep(force)
+                        if quest_unloaded or not auto_complete then
+                                return
+                        end
+                        local now = os.clock()
+                        if not force and handover_last > 0 and now - handover_last < HANDOVER_SWEEP_COOLDOWN then
+                                return
+                        end
+                        handover_last = now
+                        local any_success = false
+                        for _, npc_name in ipairs(npc_candidates) do
+                                if quest_unloaded or not auto_complete then
+                                        return
+                                end
+                                if handover_npc(npc_name) then
+                                        any_success = true
+                                end
+                                task.wait(0.5)
+                        end
+                        if any_success and not quest_unloaded then
+                                -- something was delivered -> turn the finished
+                                -- quest in right away and re-accept
+                                run_turnin_chain()
+                        end
+                end
+
+                -- delivery watcher: every 5s check the active quests; when the
+                -- needed items are all in the inventory, hand them over at once.
+                -- It iterates ONLY the quests the server actually replicated
+                -- (usually a handful) instead of the whole 73-name farm list,
+                -- and the objective/requirement reads are cached per quest
+                task.spawn(function()
+                        while not quest_unloaded do
+                                task.wait(5)
+                                if not quest_unloaded and auto_complete and quest_remote then
+                                        local ready_quest = nil
+                                        local any_handover = false
+                                        local folder = find_quests_folder()
+                                        local owned = nil
+                                        if folder then
+                                                pcall(function()
+                                                        owned = folder:GetChildren()
+                                                end)
+                                        end
+                                        for _, q in ipairs(owned or {}) do
+                                                if quest_unloaded or not auto_complete then
+                                                        break
+                                                end
+                                                local quest_name = q.Name
+                                                local is_active = false
+                                                pcall(function()
+                                                        is_active = q:GetAttribute("State") == "Active"
+                                                end)
+                                                if is_active and cached_has_handover(quest_name, q) then
+                                                        any_handover = true
+                                                        local req = cached_requirements(quest_name)
+                                                        if req and req.item then
+                                                                local have = count_item(req.item)
+                                                                local need = req.count or 1
+                                                                if have >= need then
+                                                                        ready_quest = quest_name
+                                                                end
+                                                        end
+                                                end
+                                                task.wait(0.2)
+                                        end
+                                        if ready_quest then
+                                                -- items confirmed complete -> hand over right now
+                                                handover_sweep(true)
+                                        elseif any_handover then
+                                                -- fetch/hand-over quest active -> gentle sweep
+                                                handover_sweep(false)
+                                        end
+                                end
+                        end
+                end)
+
+                -- only these four controls (list + delays are automatic)
+                ui.sections.quest_main:Toggle({Name = "Auto accept quest", Value = false, Flag = "quest_auto_accept", Callback = function(bool)
+                        auto_accept = bool
+                end})
+                ui.sections.quest_main:Toggle({Name = "Auto complete quest", Value = false, Flag = "quest_auto_complete", Callback = function(bool)
+                        auto_complete = bool
+                end})
+                ui.sections.quest_main:Button({Name = "Accept now", Callback = function()
+                        task.spawn(run_once, "Activate")
+                end})
+                ui.sections.quest_main:Button({Name = "Complete now", Callback = function()
+                        task.spawn(function()
+                                run_once("Complete")
+                                if not quest_unloaded then
+                                        -- hand over items right away too
+                                        handover_sweep(true)
+                                end
+                        end)
+                end})
+        end)
+end
+
 -- Unload
 do
 	ui.sections.settings_config:Button({
